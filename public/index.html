@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Binance USDT Movers</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero-card">
+        <p class="eyebrow">BINANCE MARKET SCREENER</p>
+        <div class="hero-main">
+          <div>
+            <h1>现货 + 永续涨跌榜</h1>
+            <p class="hero-copy">
+              这是一个适合 Cloudflare Pages 的纯静态前端版本，只统计币安现货和
+              U 本位永续里的 USDT 交易对，按最近
+              <span id="heroWindowLabel">1天</span> 涨跌幅与异动幅度筛选榜单。
+            </p>
+          </div>
+          <div class="hero-meta">
+            <div class="meta-box">
+              <span class="meta-label">标的数量</span>
+              <strong id="countTotal">-</strong>
+            </div>
+            <div class="meta-box">
+              <span class="meta-label">最后更新时间</span>
+              <strong id="generatedAt">-</strong>
+            </div>
+            <div class="meta-box">
+              <span class="meta-label">数据来源</span>
+              <strong>Browser → Binance</strong>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="toolbar-card">
+        <div class="tabs-block">
+          <p class="block-label">时间窗口</p>
+          <div class="window-tabs" id="windowTabs"></div>
+        </div>
+
+        <div class="controls-grid">
+          <label class="control">
+            <span>市场</span>
+            <select id="segmentFilter">
+              <option value="all">全部</option>
+              <option value="spot">现货</option>
+              <option value="usdm">U 本位永续</option>
+            </select>
+          </label>
+
+          <label class="control">
+            <span>榜单条数</span>
+            <select id="leaderboardLimit">
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+
+          <label class="control search-control">
+            <span>搜索</span>
+            <input id="searchInput" type="search" placeholder="BTC / USDT / ETHUSDT" />
+          </label>
+
+          <button id="refreshButton" class="refresh-button" type="button">刷新当前窗口</button>
+        </div>
+      </section>
+
+      <section class="status-card">
+        <div>
+          <p class="status-label">状态</p>
+          <p id="statusText" class="status-text">正在加载榜单...</p>
+        </div>
+        <div class="count-strip">
+          <span class="count-pill">现货 <strong id="countSpot">-</strong></span>
+          <span class="count-pill">U 本位 <strong id="countUsdm">-</strong></span>
+        </div>
+      </section>
+
+      <section class="notes-card">
+        <div class="notes-header">
+          <p class="block-label">数据说明</p>
+        </div>
+        <div id="notesList" class="notes-list"></div>
+      </section>
+
+      <section class="board-grid">
+        <article class="table-card">
+          <div class="table-head">
+            <div>
+              <p class="board-kicker">TOP GAINERS</p>
+              <h2>涨幅榜</h2>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>交易对</th>
+                  <th>市场</th>
+                  <th>最新价</th>
+                  <th id="gainerWindowHead">涨跌幅</th>
+                </tr>
+              </thead>
+              <tbody id="gainersBody"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="table-card">
+          <div class="table-head">
+            <div>
+              <p class="board-kicker">TOP LOSERS</p>
+              <h2>跌幅榜</h2>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>交易对</th>
+                  <th>市场</th>
+                  <th>最新价</th>
+                  <th id="loserWindowHead">涨跌幅</th>
+                </tr>
+              </thead>
+              <tbody id="losersBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="table-card full-table-card">
+        <div class="table-head">
+          <div>
+            <p class="board-kicker">VOLATILITY LEADERBOARD</p>
+            <h2>异动榜单</h2>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>交易对</th>
+                <th>市场</th>
+                <th>最新价</th>
+                <th id="activityChangeHead">涨跌幅</th>
+                <th>周期最高</th>
+                <th>周期最低</th>
+                <th id="activityRangeHead">异动幅度</th>
+                <th>精度</th>
+              </tr>
+            </thead>
+            <tbody id="activityBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+  </html>

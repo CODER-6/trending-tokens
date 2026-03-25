@@ -1,0 +1,8 @@
+{
+  "name": "binance-movers-board",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 8124 -d public",
+    "dev": "python3 -m http.server 8124 -d public"
+  }
+}

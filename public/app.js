@@ -24,7 +24,8 @@ const WINDOW_CONFIG = {
     label: "7天",
     ttlMs: 5 * 60_000,
     durationMs: 7 * 86_400_000,
-    usdmHistory: { interval: "1d", limit: 8 },
+    // 7d windows need an extra prior daily bar so the boundary has a reference price.
+    usdmHistory: { interval: "1d", limit: 10 },
   },
 };
 

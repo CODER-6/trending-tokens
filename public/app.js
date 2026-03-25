@@ -52,7 +52,8 @@ const usdmConfig = {
   ticker24hPath: "/fapi/v1/ticker/24hr",
   pricePath: "/fapi/v1/ticker/price",
   klinePath: "/fapi/v1/klines",
-  historyConcurrency: 6,
+  historyConcurrency: 3,
+  historyRetryRounds: 3,
 };
 
 const runtimeCache = new Map();
@@ -100,6 +101,16 @@ function chunk(list, size) {
     result.push(list.slice(index, index + size));
   }
   return result;
+}
+
+function formatListPreview(items, limit = 6) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return "";
+  }
+
+  const preview = items.slice(0, limit).join(", ");
+  const remaining = items.length - limit;
+  return remaining > 0 ? `${preview} 等 ${items.length} 个` : preview;
 }
 
 async function promisePool(items, concurrency, worker) {
@@ -264,6 +275,15 @@ async function fetchJsonFromCandidates(baseUrls, pathname, configureUrl, options
   }
 
   throw lastError ?? new Error(`${pathname} failed on all base URLs`);
+}
+
+function toErrorMessage(error) {
+  if (!error) {
+    return "Unknown error";
+  }
+
+  const message = error?.message ? String(error.message) : String(error);
+  return message.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
 function toNumber(value) {
@@ -487,33 +507,67 @@ async function getUsdmPrices(options = {}) {
 async function getUsdmHistory(window, symbols, options = {}) {
   const historyConfig = WINDOW_CONFIG[window].usdmHistory;
   if (!historyConfig) {
-    return new Map();
+    return {
+      data: new Map(),
+      failures: new Map(),
+    };
   }
 
   return withCache(`usdm:history:${window}`, WINDOW_CONFIG[window].ttlMs, async () => {
     const entries = await promisePool(symbols, usdmConfig.historyConcurrency, async (symbolMeta) => {
-      try {
-        const payload = await fetchJsonFromCandidates(
-          usdmConfig.baseUrls,
-          usdmConfig.klinePath,
-          (url) => {
-            url.searchParams.set("symbol", symbolMeta.symbol);
-            url.searchParams.set("interval", historyConfig.interval);
-            url.searchParams.set("limit", String(historyConfig.limit));
-          },
-          {
-            label: `USD-M ${window} klines ${symbolMeta.symbol}`,
-            retries: 1,
-            timeoutMs: 15_000,
-          },
-        );
-        return [symbolMeta.symbol, payload];
-      } catch {
-        return [symbolMeta.symbol, null];
+      let lastError = null;
+
+      for (let attempt = 0; attempt < usdmConfig.historyRetryRounds; attempt += 1) {
+        try {
+          const payload = await fetchJsonFromCandidates(
+            usdmConfig.baseUrls,
+            usdmConfig.klinePath,
+            (url) => {
+              url.searchParams.set("symbol", symbolMeta.symbol);
+              url.searchParams.set("interval", historyConfig.interval);
+              url.searchParams.set("limit", String(historyConfig.limit));
+            },
+            {
+              label: `USD-M ${window} klines ${symbolMeta.symbol} attempt ${attempt + 1}`,
+              retries: 2,
+              timeoutMs: 20_000,
+              retryDelayMs: 1_000 + attempt * 500,
+            },
+          );
+
+          return {
+            symbol: symbolMeta.symbol,
+            payload,
+            error: null,
+          };
+        } catch (error) {
+          lastError = error;
+
+          if (attempt < usdmConfig.historyRetryRounds - 1) {
+            await sleep(700 * (attempt + 1));
+          }
+        }
       }
+
+      return {
+        symbol: symbolMeta.symbol,
+        payload: null,
+        error: toErrorMessage(lastError),
+      };
     });
 
-    return new Map(entries.filter((entry) => Array.isArray(entry?.[1])));
+    const data = new Map();
+    const failures = new Map();
+
+    for (const entry of entries) {
+      if (Array.isArray(entry?.payload)) {
+        data.set(entry.symbol, entry.payload);
+      } else if (entry?.symbol) {
+        failures.set(entry.symbol, entry?.error ?? "Failed to load klines");
+      }
+    }
+
+    return { data, failures };
   }, options);
 }
 
@@ -562,6 +616,10 @@ function buildUsdmItems(window, symbols, tickers, histories) {
   const items = [];
   const now = Date.now();
   const targetTime = now - WINDOW_CONFIG[window].durationMs;
+  const diagnostics = {
+    historyFailures: [],
+    insufficientHistory: [],
+  };
 
   for (const symbol of symbols) {
     const ticker = tickers.get(symbol.symbol);
@@ -580,6 +638,8 @@ function buildUsdmItems(window, symbols, tickers, histories) {
     let windowLow = null;
     let rangePercent = null;
     let isExact = false;
+    let dataStatus = "ready";
+    let dataIssue = "";
 
     if (window === "1d") {
       referencePrice = toNumber(ticker.openPrice);
@@ -590,7 +650,8 @@ function buildUsdmItems(window, symbols, tickers, histories) {
       rangePercent = priceRangePercent(windowHigh, windowLow, referencePrice);
       isExact = true;
     } else {
-      const klines = histories.get(symbol.symbol);
+      const klines = histories.data.get(symbol.symbol);
+      const historyError = histories.failures.get(symbol.symbol);
       const referenceBar = getReferenceBar(klines, targetTime);
       const highLow = getWindowHighLow(klines, targetTime, now);
 
@@ -600,9 +661,19 @@ function buildUsdmItems(window, symbols, tickers, histories) {
       windowLow = highLow?.lowPrice ?? null;
       rangePercent = priceRangePercent(windowHigh, windowLow, referencePrice);
       isExact = false;
+
+      if (historyError) {
+        dataStatus = "history-failed";
+        dataIssue = "K线加载失败";
+        diagnostics.historyFailures.push(symbol.symbol);
+      } else if (!Number.isFinite(referencePrice) || !Number.isFinite(rangePercent)) {
+        dataStatus = "history-short";
+        dataIssue = `历史不足 ${window}`;
+        diagnostics.insufficientHistory.push(symbol.symbol);
+      }
     }
 
-    if (!Number.isFinite(changePercent)) {
+    if (dataStatus === "ready" && !Number.isFinite(changePercent)) {
       continue;
     }
 
@@ -621,14 +692,19 @@ function buildUsdmItems(window, symbols, tickers, histories) {
       windowLow,
       rangePercent,
       isExact,
+      dataStatus,
+      dataIssue,
     });
   }
 
-  return items;
+  return {
+    items,
+    diagnostics,
+  };
 }
 
-function buildNotes(window) {
-  return [
+function buildNotes(window, diagnostics = {}) {
+  const notes = [
     {
       kind: "info",
       text: "纯静态前端版本由浏览器直接请求 Binance；当前浏览器网络必须能访问 Binance。",
@@ -653,6 +729,22 @@ function buildNotes(window) {
           : "U 本位永续 3d/7d 使用 1d K 线近似计算，因此和滚动窗口可能有轻微偏差。",
     },
   ];
+
+  if (window !== "1d" && diagnostics.historyFailures?.length) {
+    notes.push({
+      kind: "warn",
+      text: `U 本位永续 ${window} K 线有 ${diagnostics.historyFailures.length} 个标的加载失败；这些标的已保留在数据集里并标记为“缺失”。示例：${formatListPreview(diagnostics.historyFailures)}。`,
+    });
+  }
+
+  if (window !== "1d" && diagnostics.insufficientHistory?.length) {
+    notes.push({
+      kind: "warn",
+      text: `U 本位永续 ${window} 有 ${diagnostics.insufficientHistory.length} 个标的历史不足；这些标的已保留在数据集里并标记为“缺失”。示例：${formatListPreview(diagnostics.insufficientHistory)}。`,
+    });
+  }
+
+  return notes;
 }
 
 async function buildSnapshot(window, options = {}, setStage = () => {}) {
@@ -666,7 +758,10 @@ async function buildSnapshot(window, options = {}, setStage = () => {}) {
   const spotRolling = await getSpotRollingWindow(window, spotSymbols, options);
 
   let usdmTickers = new Map();
-  let usdmHistory = new Map();
+  let usdmHistory = {
+    data: new Map(),
+    failures: new Map(),
+  };
 
   if (window === "1d") {
     setStage("加载 1d 永续榜单...");
@@ -680,7 +775,12 @@ async function buildSnapshot(window, options = {}, setStage = () => {}) {
   }
 
   const spotItems = buildSpotItems(window, spotSymbols, spotRolling);
-  const usdmItems = buildUsdmItems(window, usdmSymbols, usdmTickers, usdmHistory);
+  const { items: usdmItems, diagnostics: usdmDiagnostics } = buildUsdmItems(
+    window,
+    usdmSymbols,
+    usdmTickers,
+    usdmHistory,
+  );
   const items = [...spotItems, ...usdmItems];
 
   return {
@@ -692,7 +792,11 @@ async function buildSnapshot(window, options = {}, setStage = () => {}) {
       usdm: usdmItems.length,
       total: items.length,
     },
-    notes: buildNotes(window),
+    diagnostics: {
+      usdmHistoryFailures: usdmDiagnostics.historyFailures,
+      usdmInsufficientHistory: usdmDiagnostics.insufficientHistory,
+    },
+    notes: buildNotes(window, usdmDiagnostics),
     items,
   };
 }
@@ -863,16 +967,42 @@ function sortByActivity(items) {
   return copy;
 }
 
+function createSymbolCell(item) {
+  return `
+    <div class="symbol-cell">
+      <span class="symbol-main">${item.displaySymbol || item.symbol}</span>
+      <span class="symbol-sub">${item.symbol}</span>
+      ${item.dataIssue ? `<span class="symbol-issue">${item.dataIssue}</span>` : ""}
+    </div>
+  `;
+}
+
+function getAccuracyMeta(item) {
+  if (item.dataStatus === "history-failed") {
+    return {
+      className: "is-missing",
+      label: "缺失",
+    };
+  }
+
+  if (item.dataStatus === "history-short") {
+    return {
+      className: "is-missing",
+      label: "历史不足",
+    };
+  }
+
+  return {
+    className: item.isExact ? "is-exact" : "is-approx",
+    label: item.isExact ? "精确" : "近似",
+  };
+}
+
 function createBoardRow(item, rank) {
   return `
     <tr>
       <td>${rank}</td>
-      <td>
-        <div class="symbol-cell">
-          <span class="symbol-main">${item.displaySymbol || item.symbol}</span>
-          <span class="symbol-sub">${item.symbol}</span>
-        </div>
-      </td>
+      <td>${createSymbolCell(item)}</td>
       <td><span class="segment-badge" data-segment="${item.segment}">${item.segmentLabel}</span></td>
       <td>${formatPrice(item.lastPrice)}</td>
       <td class="${getValueClass(item.changePercent)}">${formatPercent(item.changePercent)}</td>
@@ -881,15 +1011,11 @@ function createBoardRow(item, rank) {
 }
 
 function createActivityRow(item, rank) {
+  const accuracy = getAccuracyMeta(item);
   return `
     <tr>
       <td>${rank}</td>
-      <td>
-        <div class="symbol-cell">
-          <span class="symbol-main">${item.displaySymbol || item.symbol}</span>
-          <span class="symbol-sub">${item.symbol}</span>
-        </div>
-      </td>
+      <td>${createSymbolCell(item)}</td>
       <td><span class="segment-badge" data-segment="${item.segment}">${item.segmentLabel}</span></td>
       <td>${formatPrice(item.lastPrice)}</td>
       <td class="${getValueClass(item.changePercent)}">${formatPercent(item.changePercent)}</td>
@@ -897,8 +1023,8 @@ function createActivityRow(item, rank) {
       <td>${formatPrice(item.windowLow)}</td>
       <td class="${getValueClass(item.rangePercent)}">${formatUnsignedPercent(item.rangePercent)}</td>
       <td>
-        <span class="accuracy-badge ${item.isExact ? "is-exact" : "is-approx"}">
-          ${item.isExact ? "精确" : "近似"}
+        <span class="accuracy-badge ${accuracy.className}">
+          ${accuracy.label}
         </span>
       </td>
     </tr>
@@ -993,7 +1119,14 @@ async function loadSnapshot(options = {}) {
 
     state.payload = payload;
     renderAll();
-    setStatus(`已载入 ${payload.windowLabel} 榜单，共 ${payload.counts.total} 个标的。`);
+    const missingCount =
+      (payload.diagnostics?.usdmHistoryFailures?.length ?? 0) +
+      (payload.diagnostics?.usdmInsufficientHistory?.length ?? 0);
+    const missingSuffix =
+      payload.window !== "1d" && missingCount > 0
+        ? ` 其中 ${missingCount} 个永续标的未完成 ${payload.windowLabel} 计算，已标记为缺失。`
+        : "";
+    setStatus(`已载入 ${payload.windowLabel} 榜单，共 ${payload.counts.total} 个标的。${missingSuffix}`);
   } catch (error) {
     if (state.loadId !== currentLoadId) {
       return;

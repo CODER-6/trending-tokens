@@ -295,6 +295,11 @@ h2 {
   color: var(--amber);
 }
 
+.note-tag.is-warn {
+  background: rgba(203, 63, 47, 0.12);
+  color: var(--red);
+}
+
 .note-row p {
   margin: 0;
   color: var(--muted);
@@ -368,6 +373,11 @@ tbody tr:hover {
   font-size: 12px;
 }
 
+.symbol-issue {
+  color: var(--red);
+  font-size: 12px;
+}
+
 .segment-badge,
 .accuracy-badge {
   display: inline-flex;
@@ -402,6 +412,11 @@ tbody tr:hover {
 .accuracy-badge.is-approx {
   background: rgba(203, 63, 47, 0.12);
   color: var(--red);
+}
+
+.accuracy-badge.is-missing {
+  background: rgba(103, 94, 85, 0.12);
+  color: var(--muted);
 }
 
 .value-positive {

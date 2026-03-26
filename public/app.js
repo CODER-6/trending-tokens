@@ -1,5 +1,4 @@
-const QUOTE_ASSET = "USDT";
-const STORAGE_PREFIX = "binance-pages-static-v2";
+const STORAGE_PREFIX = "binance-pages-worker-v3";
 
 const windowOptions = [
   { key: "1d", label: "1天" },
@@ -11,50 +10,15 @@ const WINDOW_CONFIG = {
   "1d": {
     label: "1天",
     ttlMs: 60_000,
-    durationMs: 86_400_000,
-    usdmHistory: null,
   },
   "3d": {
     label: "3天",
     ttlMs: 5 * 60_000,
-    durationMs: 3 * 86_400_000,
-    usdmHistory: { interval: "1d", limit: 8 },
   },
   "7d": {
     label: "7天",
     ttlMs: 5 * 60_000,
-    durationMs: 7 * 86_400_000,
-    // 7d windows need an extra prior daily bar so the boundary has a reference price.
-    usdmHistory: { interval: "1d", limit: 10 },
   },
-};
-
-const spotConfig = {
-  title: "现货",
-  baseUrls: [
-    "https://data-api.binance.vision",
-    "https://api.binance.com",
-  ],
-  exchangePath: "/api/v3/exchangeInfo",
-  rollingPath: "/api/v3/ticker",
-  rollingBatchSize: 20,
-  rollingConcurrency: 3,
-};
-
-const usdmConfig = {
-  title: "U本位永续",
-  baseUrls: [
-    "https://fapi.binance.com",
-    "https://fapi1.binance.com",
-    "https://fapi2.binance.com",
-    "https://fapi3.binance.com",
-  ],
-  exchangePath: "/fapi/v1/exchangeInfo",
-  ticker24hPath: "/fapi/v1/ticker/24hr",
-  pricePath: "/fapi/v1/ticker/price",
-  klinePath: "/fapi/v1/klines",
-  historyConcurrency: 3,
-  historyRetryRounds: 3,
 };
 
 const runtimeCache = new Map();
@@ -82,6 +46,7 @@ const elements = {
   countTotal: document.querySelector("#countTotal"),
   countSpot: document.querySelector("#countSpot"),
   countUsdm: document.querySelector("#countUsdm"),
+  dataSource: document.querySelector("#dataSource"),
   heroWindowLabel: document.querySelector("#heroWindowLabel"),
   gainerWindowHead: document.querySelector("#gainerWindowHead"),
   loserWindowHead: document.querySelector("#loserWindowHead"),
@@ -91,45 +56,6 @@ const elements = {
   losersBody: document.querySelector("#losersBody"),
   activityBody: document.querySelector("#activityBody"),
 };
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function chunk(list, size) {
-  const result = [];
-  for (let index = 0; index < list.length; index += size) {
-    result.push(list.slice(index, index + size));
-  }
-  return result;
-}
-
-function formatListPreview(items, limit = 6) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return "";
-  }
-
-  const preview = items.slice(0, limit).join(", ");
-  const remaining = items.length - limit;
-  return remaining > 0 ? `${preview} 等 ${items.length} 个` : preview;
-}
-
-async function promisePool(items, concurrency, worker) {
-  const results = new Array(items.length);
-  let cursor = 0;
-
-  async function runWorker() {
-    while (cursor < items.length) {
-      const currentIndex = cursor;
-      cursor += 1;
-      results[currentIndex] = await worker(items[currentIndex], currentIndex);
-    }
-  }
-
-  const workerCount = Math.max(1, Math.min(concurrency, items.length || 1));
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-  return results;
-}
 
 function readStoredEntry(key) {
   try {
@@ -180,7 +106,12 @@ async function withCache(key, ttlMs, loader, options = {}) {
 
   const promise = (async () => {
     const value = await loader();
-    const entry = { value, expiresAt: Date.now() + ttlMs };
+    const effectiveTtlMs = value?.backend?.isStale ? 15_000 : ttlMs;
+    const entry = {
+      value,
+      expiresAt: Date.now() + effectiveTtlMs,
+    };
+
     runtimeCache.set(key, entry);
     writeStoredEntry(key, entry);
     return value;
@@ -209,7 +140,7 @@ async function fetchJson(url, options = {}) {
     timeoutMs = 20_000,
     retries = 1,
     label = url.toString(),
-    retryDelayMs = 800,
+    retryDelayMs = 500,
   } = options;
 
   let lastError = null;
@@ -226,25 +157,28 @@ async function fetchJson(url, options = {}) {
         },
       });
 
-      if (!response.ok) {
-        const body = (await response.text()).slice(0, 240);
-        throw new Error(`${label} failed with ${response.status}: ${body}`);
+      const rawText = await response.text();
+      let payload = null;
+
+      try {
+        payload = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        throw new Error(`${label} returned invalid JSON`);
       }
 
-      const rawText = await response.text();
-      try {
-        return JSON.parse(rawText);
-      } catch {
-        throw new Error(`${label} returned invalid JSON: ${rawText.slice(0, 240) || "<empty>"}`);
+      if (!response.ok) {
+        throw new Error(payload?.message || payload?.error || `${label} failed with ${response.status}`);
       }
+
+      return payload;
     } catch (error) {
       lastError = error;
       const shouldRetry =
         attempt < retries &&
-        (error.name === "AbortError" || error.message.includes("fetch"));
+        (error.name === "AbortError" || String(error.message ?? "").includes("fetch"));
 
       if (shouldRetry) {
-        await sleep(retryDelayMs * (attempt + 1));
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
       } else {
         break;
       }
@@ -256,557 +190,28 @@ async function fetchJson(url, options = {}) {
   throw lastError ?? new Error(`${label} failed`);
 }
 
-async function fetchJsonFromCandidates(baseUrls, pathname, configureUrl, options = {}) {
-  let lastError = null;
+async function fetchSnapshotFromApi(windowKey, options = {}) {
+  const url = new URL("/api/snapshot", window.location.origin);
+  url.searchParams.set("window", windowKey);
 
-  for (const baseUrl of baseUrls) {
-    const url = new URL(pathname, baseUrl);
-    if (typeof configureUrl === "function") {
-      configureUrl(url);
-    }
-
-    try {
-      return await fetchJson(url, {
-        ...options,
-        label: `${options.label ?? pathname} via ${baseUrl}`,
-      });
-    } catch (error) {
-      lastError = error;
-    }
+  if (options.force === true) {
+    url.searchParams.set("refresh", "1");
   }
 
-  throw lastError ?? new Error(`${pathname} failed on all base URLs`);
+  return fetchJson(url, {
+    label: `Snapshot ${windowKey}`,
+    retries: 1,
+    timeoutMs: 90_000,
+  });
 }
 
-function toErrorMessage(error) {
-  if (!error) {
-    return "Unknown error";
-  }
+async function getSnapshot(windowKey, options = {}, setStage = () => {}) {
+  setStage("正在请求服务端榜单...");
 
-  const message = error?.message ? String(error.message) : String(error);
-  return message.replace(/\s+/g, " ").trim().slice(0, 160);
-}
-
-function toNumber(value) {
-  const result = Number(value);
-  return Number.isFinite(result) ? result : null;
-}
-
-function percentChange(lastPrice, referencePrice) {
-  if (!Number.isFinite(lastPrice) || !Number.isFinite(referencePrice) || referencePrice === 0) {
-    return null;
-  }
-
-  return ((lastPrice - referencePrice) / referencePrice) * 100;
-}
-
-function priceRangePercent(highPrice, lowPrice, basePrice) {
-  if (
-    !Number.isFinite(highPrice) ||
-    !Number.isFinite(lowPrice) ||
-    !Number.isFinite(basePrice) ||
-    basePrice === 0
-  ) {
-    return null;
-  }
-
-  return ((highPrice - lowPrice) / basePrice) * 100;
-}
-
-function getReferenceBar(klines, targetTime) {
-  if (!Array.isArray(klines) || klines.length === 0) {
-    return null;
-  }
-
-  let candidate = null;
-  for (const bar of klines) {
-    const closeTime = Number(bar?.[6]);
-    if (!Number.isFinite(closeTime)) {
-      continue;
-    }
-
-    if (closeTime <= targetTime) {
-      candidate = bar;
-      continue;
-    }
-
-    break;
-  }
-
-  return candidate;
-}
-
-function getWindowHighLow(klines, targetTime, endTime) {
-  if (!Array.isArray(klines) || klines.length === 0) {
-    return null;
-  }
-
-  let highest = -Infinity;
-  let lowest = Infinity;
-  let seen = false;
-
-  for (const bar of klines) {
-    const openTime = Number(bar?.[0]);
-    const closeTime = Number(bar?.[6]);
-    const highPrice = toNumber(bar?.[2]);
-    const lowPrice = toNumber(bar?.[3]);
-
-    if (
-      !Number.isFinite(openTime) ||
-      !Number.isFinite(closeTime) ||
-      !Number.isFinite(highPrice) ||
-      !Number.isFinite(lowPrice)
-    ) {
-      continue;
-    }
-
-    if (closeTime > targetTime && openTime <= endTime) {
-      highest = Math.max(highest, highPrice);
-      lowest = Math.min(lowest, lowPrice);
-      seen = true;
-    }
-  }
-
-  if (!seen) {
-    return null;
-  }
-
-  return {
-    highPrice: highest,
-    lowPrice: lowest,
-  };
-}
-
-function createDisplaySymbol(baseAsset, quoteAsset) {
-  return baseAsset && quoteAsset ? `${baseAsset}/${quoteAsset}` : "";
-}
-
-function isSpotSymbolEligible(symbol) {
-  const permissions = Array.isArray(symbol.permissions) ? symbol.permissions : [];
-  const permissionSets = Array.isArray(symbol.permissionSets)
-    ? symbol.permissionSets.flat().filter(Boolean)
-    : [];
-  const hasSpotPermission =
-    Boolean(symbol.isSpotTradingAllowed) ||
-    permissions.includes("SPOT") ||
-    permissionSets.includes("SPOT");
-
-  return symbol.status === "TRADING" && hasSpotPermission && symbol.quoteAsset === QUOTE_ASSET;
-}
-
-function isUsdmSymbolEligible(symbol) {
-  return (
-    symbol.status === "TRADING" &&
-    symbol.contractType === "PERPETUAL" &&
-    symbol.quoteAsset === QUOTE_ASSET
-  );
-}
-
-async function getSpotSymbols(options = {}) {
-  return withCache("symbols:spot", 60 * 60 * 1000, async () => {
-    const payload = await fetchJsonFromCandidates(spotConfig.baseUrls, spotConfig.exchangePath, null, {
-      label: "Spot exchange info",
-      retries: 2,
-    });
-
-    return (payload.symbols ?? [])
-      .filter(isSpotSymbolEligible)
-      .map((symbol) => ({
-        market: "spot",
-        segment: "spot",
-        segmentLabel: "现货",
-        symbol: symbol.symbol,
-        baseAsset: symbol.baseAsset,
-        quoteAsset: symbol.quoteAsset,
-      }));
-  }, options);
-}
-
-async function getUsdmSymbols(options = {}) {
-  return withCache("symbols:usdm", 60 * 60 * 1000, async () => {
-    const payload = await fetchJsonFromCandidates(usdmConfig.baseUrls, usdmConfig.exchangePath, null, {
-      label: "USD-M exchange info",
-      retries: 2,
-    });
-
-    return (payload.symbols ?? [])
-      .filter(isUsdmSymbolEligible)
-      .map((symbol) => ({
-        market: "perpetual",
-        segment: "usdm",
-        segmentLabel: "U本位永续",
-        symbol: symbol.symbol,
-        baseAsset: symbol.baseAsset,
-        quoteAsset: symbol.quoteAsset,
-      }));
-  }, options);
-}
-
-async function getSpotRollingWindow(window, symbols, options = {}) {
-  return withCache(`spot:rolling:${window}`, WINDOW_CONFIG[window].ttlMs, async () => {
-    const batches = chunk(symbols.map((item) => item.symbol), spotConfig.rollingBatchSize);
-    const pages = await promisePool(batches, spotConfig.rollingConcurrency, async (batch) => {
-      return fetchJsonFromCandidates(
-        spotConfig.baseUrls,
-        spotConfig.rollingPath,
-        (url) => {
-          url.searchParams.set("windowSize", window);
-          url.searchParams.set("type", "FULL");
-          url.searchParams.set("symbols", JSON.stringify(batch));
-        },
-        {
-          label: `Spot ${window} rolling window`,
-          retries: 2,
-        },
-      );
-    });
-
-    const result = new Map();
-    for (const page of pages) {
-      for (const item of page) {
-        result.set(item.symbol, item);
-      }
-    }
-    return result;
-  }, options);
-}
-
-async function getUsdm24hAllTickers(options = {}) {
-  return withCache("usdm:24h", 60_000, async () => {
-    const payload = await fetchJsonFromCandidates(usdmConfig.baseUrls, usdmConfig.ticker24hPath, null, {
-      label: "USD-M 24h tickers",
-      retries: 2,
-    });
-
-    const result = new Map();
-    for (const item of payload ?? []) {
-      if (item?.symbol) {
-        result.set(item.symbol, item);
-      }
-    }
-    return result;
-  }, options);
-}
-
-async function getUsdmPrices(options = {}) {
-  return withCache("usdm:price", 60_000, async () => {
-    const payload = await fetchJsonFromCandidates(usdmConfig.baseUrls, usdmConfig.pricePath, null, {
-      label: "USD-M latest prices",
-      retries: 2,
-    });
-
-    const result = new Map();
-    for (const item of payload ?? []) {
-      if (item?.symbol) {
-        result.set(item.symbol, item);
-      }
-    }
-    return result;
-  }, options);
-}
-
-async function getUsdmHistory(window, symbols, options = {}) {
-  const historyConfig = WINDOW_CONFIG[window].usdmHistory;
-  if (!historyConfig) {
-    return {
-      data: new Map(),
-      failures: new Map(),
-    };
-  }
-
-  return withCache(`usdm:history:${window}`, WINDOW_CONFIG[window].ttlMs, async () => {
-    const entries = await promisePool(symbols, usdmConfig.historyConcurrency, async (symbolMeta) => {
-      let lastError = null;
-
-      for (let attempt = 0; attempt < usdmConfig.historyRetryRounds; attempt += 1) {
-        try {
-          const payload = await fetchJsonFromCandidates(
-            usdmConfig.baseUrls,
-            usdmConfig.klinePath,
-            (url) => {
-              url.searchParams.set("symbol", symbolMeta.symbol);
-              url.searchParams.set("interval", historyConfig.interval);
-              url.searchParams.set("limit", String(historyConfig.limit));
-            },
-            {
-              label: `USD-M ${window} klines ${symbolMeta.symbol} attempt ${attempt + 1}`,
-              retries: 2,
-              timeoutMs: 20_000,
-              retryDelayMs: 1_000 + attempt * 500,
-            },
-          );
-
-          return {
-            symbol: symbolMeta.symbol,
-            payload,
-            error: null,
-          };
-        } catch (error) {
-          lastError = error;
-
-          if (attempt < usdmConfig.historyRetryRounds - 1) {
-            await sleep(700 * (attempt + 1));
-          }
-        }
-      }
-
-      return {
-        symbol: symbolMeta.symbol,
-        payload: null,
-        error: toErrorMessage(lastError),
-      };
-    });
-
-    const data = new Map();
-    const failures = new Map();
-
-    for (const entry of entries) {
-      if (Array.isArray(entry?.payload)) {
-        data.set(entry.symbol, entry.payload);
-      } else if (entry?.symbol) {
-        failures.set(entry.symbol, entry?.error ?? "Failed to load klines");
-      }
-    }
-
-    return { data, failures };
-  }, options);
-}
-
-function buildSpotItems(window, symbols, rollingStats) {
-  const items = [];
-
-  for (const symbol of symbols) {
-    const stats = rollingStats.get(symbol.symbol);
-    if (!stats) {
-      continue;
-    }
-
-    const lastPrice = toNumber(stats.lastPrice);
-    const referencePrice = toNumber(stats.openPrice);
-    const windowHigh = toNumber(stats.highPrice);
-    const windowLow = toNumber(stats.lowPrice);
-    const changePercent = toNumber(stats.priceChangePercent);
-    const rangePercent = priceRangePercent(windowHigh, windowLow, referencePrice);
-
-    if (!Number.isFinite(lastPrice) || !Number.isFinite(changePercent)) {
-      continue;
-    }
-
-    items.push({
-      market: "spot",
-      segment: "spot",
-      segmentLabel: "现货",
-      symbol: symbol.symbol,
-      displaySymbol: createDisplaySymbol(symbol.baseAsset, symbol.quoteAsset),
-      baseAsset: symbol.baseAsset,
-      quoteAsset: symbol.quoteAsset,
-      lastPrice,
-      referencePrice,
-      changePercent,
-      windowHigh,
-      windowLow,
-      rangePercent,
-      isExact: true,
-    });
-  }
-
-  return items;
-}
-
-function buildUsdmItems(window, symbols, tickers, histories) {
-  const items = [];
-  const now = Date.now();
-  const targetTime = now - WINDOW_CONFIG[window].durationMs;
-  const diagnostics = {
-    historyFailures: [],
-    insufficientHistory: [],
-  };
-
-  for (const symbol of symbols) {
-    const ticker = tickers.get(symbol.symbol);
-    if (!ticker) {
-      continue;
-    }
-
-    const lastPrice = toNumber(ticker.lastPrice ?? ticker.price);
-    if (!Number.isFinite(lastPrice)) {
-      continue;
-    }
-
-    let referencePrice = null;
-    let changePercent = null;
-    let windowHigh = null;
-    let windowLow = null;
-    let rangePercent = null;
-    let isExact = false;
-    let dataStatus = "ready";
-    let dataIssue = "";
-
-    if (window === "1d") {
-      referencePrice = toNumber(ticker.openPrice);
-      windowHigh = toNumber(ticker.highPrice);
-      windowLow = toNumber(ticker.lowPrice);
-      changePercent =
-        toNumber(ticker.priceChangePercent) ?? percentChange(lastPrice, referencePrice);
-      rangePercent = priceRangePercent(windowHigh, windowLow, referencePrice);
-      isExact = true;
-    } else {
-      const klines = histories.data.get(symbol.symbol);
-      const historyError = histories.failures.get(symbol.symbol);
-      const referenceBar = getReferenceBar(klines, targetTime);
-      const highLow = getWindowHighLow(klines, targetTime, now);
-
-      referencePrice = toNumber(referenceBar?.[4]);
-      changePercent = percentChange(lastPrice, referencePrice);
-      windowHigh = highLow?.highPrice ?? null;
-      windowLow = highLow?.lowPrice ?? null;
-      rangePercent = priceRangePercent(windowHigh, windowLow, referencePrice);
-      isExact = false;
-
-      if (historyError) {
-        dataStatus = "history-failed";
-        dataIssue = "K线加载失败";
-        diagnostics.historyFailures.push(symbol.symbol);
-      } else if (!Number.isFinite(referencePrice) || !Number.isFinite(rangePercent)) {
-        dataStatus = "history-short";
-        dataIssue = `历史不足 ${window}`;
-        diagnostics.insufficientHistory.push(symbol.symbol);
-      }
-    }
-
-    if (dataStatus === "ready" && !Number.isFinite(changePercent)) {
-      continue;
-    }
-
-    items.push({
-      market: "perpetual",
-      segment: "usdm",
-      segmentLabel: "U本位永续",
-      symbol: symbol.symbol,
-      displaySymbol: createDisplaySymbol(symbol.baseAsset, symbol.quoteAsset),
-      baseAsset: symbol.baseAsset,
-      quoteAsset: symbol.quoteAsset,
-      lastPrice,
-      referencePrice,
-      changePercent,
-      windowHigh,
-      windowLow,
-      rangePercent,
-      isExact,
-      dataStatus,
-      dataIssue,
-    });
-  }
-
-  return {
-    items,
-    diagnostics,
-  };
-}
-
-function buildNotes(window, diagnostics = {}) {
-  const notes = [
-    {
-      kind: "info",
-      text: "纯静态前端版本由浏览器直接请求 Binance；当前浏览器网络必须能访问 Binance。",
-    },
-    {
-      kind: "info",
-      text: "当前只统计 USDT 交易对；只保留现货和 U 本位永续。",
-    },
-    {
-      kind: "info",
-      text: "异动榜单按 (周期最高价 - 周期最低价) / 窗口起点价 排序；1d 使用 24h openPrice，3d/7d 使用窗口起点参考价。",
-    },
-    {
-      kind: "exact",
-      text: `现货 ${window} 排行使用 Binance Spot rolling window 接口，属于精确窗口值。`,
-    },
-    {
-      kind: window === "1d" ? "exact" : "approx",
-      text:
-        window === "1d"
-          ? "U 本位永续 1d 排行使用 Binance 24h ticker。"
-          : "U 本位永续 3d/7d 使用 1d K 线近似计算，因此和滚动窗口可能有轻微偏差。",
-    },
-  ];
-
-  if (window !== "1d" && diagnostics.historyFailures?.length) {
-    notes.push({
-      kind: "warn",
-      text: `U 本位永续 ${window} K 线有 ${diagnostics.historyFailures.length} 个标的加载失败；这些标的已保留在数据集里并标记为“缺失”。示例：${formatListPreview(diagnostics.historyFailures)}。`,
-    });
-  }
-
-  if (window !== "1d" && diagnostics.insufficientHistory?.length) {
-    notes.push({
-      kind: "warn",
-      text: `U 本位永续 ${window} 有 ${diagnostics.insufficientHistory.length} 个标的历史不足；这些标的已保留在数据集里并标记为“缺失”。示例：${formatListPreview(diagnostics.insufficientHistory)}。`,
-    });
-  }
-
-  return notes;
-}
-
-async function buildSnapshot(window, options = {}, setStage = () => {}) {
-  setStage("加载交易对列表...");
-  const [spotSymbols, usdmSymbols] = await Promise.all([
-    getSpotSymbols(options),
-    getUsdmSymbols(options),
-  ]);
-
-  setStage(`加载 ${window} 现货榜单...`);
-  const spotRolling = await getSpotRollingWindow(window, spotSymbols, options);
-
-  let usdmTickers = new Map();
-  let usdmHistory = {
-    data: new Map(),
-    failures: new Map(),
-  };
-
-  if (window === "1d") {
-    setStage("加载 1d 永续榜单...");
-    usdmTickers = await getUsdm24hAllTickers(options);
-  } else {
-    setStage(`加载 ${window} 永续最新价...`);
-    usdmTickers = await getUsdmPrices(options);
-
-    setStage(`加载 ${window} 永续 K 线，首次会慢一些...`);
-    usdmHistory = await getUsdmHistory(window, usdmSymbols, options);
-  }
-
-  const spotItems = buildSpotItems(window, spotSymbols, spotRolling);
-  const { items: usdmItems, diagnostics: usdmDiagnostics } = buildUsdmItems(
-    window,
-    usdmSymbols,
-    usdmTickers,
-    usdmHistory,
-  );
-  const items = [...spotItems, ...usdmItems];
-
-  return {
-    generatedAt: new Date().toISOString(),
-    window,
-    windowLabel: WINDOW_CONFIG[window].label,
-    counts: {
-      spot: spotItems.length,
-      usdm: usdmItems.length,
-      total: items.length,
-    },
-    diagnostics: {
-      usdmHistoryFailures: usdmDiagnostics.historyFailures,
-      usdmInsufficientHistory: usdmDiagnostics.insufficientHistory,
-    },
-    notes: buildNotes(window, usdmDiagnostics),
-    items,
-  };
-}
-
-async function getSnapshot(window, options = {}, setStage = () => {}) {
   return withCache(
-    `snapshot:${window}`,
-    WINDOW_CONFIG[window].ttlMs,
-    () => buildSnapshot(window, options, setStage),
+    `snapshot:${windowKey}`,
+    WINDOW_CONFIG[windowKey].ttlMs,
+    () => fetchSnapshotFromApi(windowKey, options),
     options,
   );
 }
@@ -1050,6 +455,18 @@ function renderNotes() {
     .join("");
 }
 
+function getDataSourceLabel(payload) {
+  if (!payload?.backend?.hasD1) {
+    return "Pages Function / 未配置 D1";
+  }
+
+  if (payload?.backend?.isStale) {
+    return "Pages Function / D1 旧快照";
+  }
+
+  return "Pages Function / D1";
+}
+
 function renderMeta() {
   elements.generatedAt.textContent = state.payload?.generatedAt
     ? formatTime(state.payload.generatedAt)
@@ -1058,6 +475,7 @@ function renderMeta() {
   elements.countTotal.textContent = state.payload?.counts?.total ?? "-";
   elements.countSpot.textContent = state.payload?.counts?.spot ?? "-";
   elements.countUsdm.textContent = state.payload?.counts?.usdm ?? "-";
+  elements.dataSource.textContent = getDataSourceLabel(state.payload);
 }
 
 function renderTables() {
@@ -1097,6 +515,23 @@ function setStatus(message) {
   elements.statusText.textContent = message;
 }
 
+function buildLoadedStatus(payload) {
+  const missingCount =
+    (payload.diagnostics?.usdmHistoryFailures?.length ?? 0) +
+    (payload.diagnostics?.usdmInsufficientHistory?.length ?? 0);
+
+  let suffix = "";
+  if (payload.backend?.isStale) {
+    suffix += " 当前展示的是旧快照，等待下一次定时同步。";
+  }
+
+  if (payload.window !== "1d" && missingCount > 0) {
+    suffix += ` 其中 ${missingCount} 个永续标的历史仍在积累。`;
+  }
+
+  return `已载入 ${payload.windowLabel} 榜单，共 ${payload.counts.total} 个标的。${suffix}`;
+}
+
 async function loadSnapshot(options = {}) {
   const force = options.force === true;
   const currentLoadId = state.loadId + 1;
@@ -1120,25 +555,18 @@ async function loadSnapshot(options = {}) {
 
     state.payload = payload;
     renderAll();
-    const missingCount =
-      (payload.diagnostics?.usdmHistoryFailures?.length ?? 0) +
-      (payload.diagnostics?.usdmInsufficientHistory?.length ?? 0);
-    const missingSuffix =
-      payload.window !== "1d" && missingCount > 0
-        ? ` 其中 ${missingCount} 个永续标的未完成 ${payload.windowLabel} 计算，已标记为缺失。`
-        : "";
-    setStatus(`已载入 ${payload.windowLabel} 榜单，共 ${payload.counts.total} 个标的。${missingSuffix}`);
+    setStatus(buildLoadedStatus(payload));
   } catch (error) {
     if (state.loadId !== currentLoadId) {
       return;
     }
 
     if (state.payload) {
-      setStatus("刷新失败，当前展示缓存数据。请确认浏览器网络能直连 Binance。");
+      setStatus("刷新失败，当前继续展示本地缓存/旧快照。请检查 D1 绑定或定时同步是否正常。");
       return;
     }
 
-    setStatus(`加载失败：请确认当前浏览器网络能直连 Binance。${error.message ? ` (${error.message})` : ""}`);
+    setStatus(`加载失败：${error.message ? `(${error.message})` : "请检查 /api/snapshot 或先运行同步任务"}`);
     renderNotes();
     renderEmptyState(elements.gainersBody, "未能获取数据。", 5);
     renderEmptyState(elements.losersBody, "未能获取数据。", 5);
@@ -1159,7 +587,7 @@ function scheduleRefresh() {
     if (!document.hidden) {
       loadSnapshot();
     }
-  }, 60_000);
+  }, 5 * 60_000);
 }
 
 function bindControls() {

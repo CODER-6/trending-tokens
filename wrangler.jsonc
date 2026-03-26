@@ -1,0 +1,14 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "crypto-hot-coin",
+	"compatibility_date": "2026-03-26",
+	"pages_build_output_dir": "./public",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "crypto-hot-coin",
+			"database_id": "b6dd8648-b2b3-464f-9203-6a6ead7ce4e7",
+			"preview_database_id": "DB"
+		}
+	]
+}

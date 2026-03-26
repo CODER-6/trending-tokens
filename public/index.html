@@ -14,9 +14,9 @@
           <div>
             <h1>现货 + 永续涨跌榜</h1>
             <p class="hero-copy">
-              这是一个适合 Cloudflare Pages 的纯静态前端版本，只统计币安现货和
-              U 本位永续里的 USDT 交易对，按最近
-              <span id="heroWindowLabel">1天</span> 涨跌幅与异动幅度筛选榜单。
+              这个版本把前端部署到 Cloudflare Pages，把聚合接口放到 Pages Functions，
+              并用 D1 保存由定时任务写入的榜单快照。页面只统计币安现货和 U 本位永续里的 USDT
+              交易对，按最近 <span id="heroWindowLabel">1天</span> 涨跌幅与异动幅度筛选榜单。
             </p>
           </div>
           <div class="hero-meta">
@@ -30,7 +30,7 @@
             </div>
             <div class="meta-box">
               <span class="meta-label">数据来源</span>
-              <strong>Browser → Binance</strong>
+              <strong id="dataSource">Pages Function / D1</strong>
             </div>
           </div>
         </div>
@@ -67,7 +67,7 @@
             <input id="searchInput" type="search" placeholder="BTC / USDT / ETHUSDT" />
           </label>
 
-          <button id="refreshButton" class="refresh-button" type="button">刷新当前窗口</button>
+          <button id="refreshButton" class="refresh-button" type="button">重新读取快照</button>
         </div>
       </section>
 

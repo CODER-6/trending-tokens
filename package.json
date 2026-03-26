@@ -1,8 +1,12 @@
 {
   "name": "binance-movers-board",
   "private": true,
+  "type": "module",
   "scripts": {
-    "start": "python3 -m http.server 8124 -d public",
-    "dev": "python3 -m http.server 8124 -d public"
+    "start": "npx wrangler pages dev public",
+    "dev": "npx wrangler pages dev public",
+    "preview:static": "python3 -m http.server 8124 -d public",
+    "sync:push": "node scripts/collect-and-push.mjs",
+    "check": "node --check public/app.js && node --check functions/_lib/snapshot-service.js && node --check functions/api/snapshot.js && node --check functions/api/internal/ingest.js && node --check scripts/collect-and-push.mjs"
   }
 }

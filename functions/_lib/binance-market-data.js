@@ -19,14 +19,29 @@ export async function collectMarketSnapshot(options = {}) {
 
   log(`collecting Binance market data at ${capturedAt}`);
 
-  const spot24h = await fetchJsonFromCandidates(fetchImpl, SPOT_BASE_URLS, "/api/v3/ticker/24hr", null, {
-    label: "Spot 24h tickers",
-    retries: 2,
-  });
-  const usdm24h = await fetchJsonFromCandidates(fetchImpl, USDM_BASE_URLS, "/fapi/v1/ticker/24hr", null, {
-    label: "USD-M 24h tickers",
-    retries: 2,
-  });
+  const [spotExchangeInfo, usdmExchangeInfo, spot24hRaw, usdm24hRaw] = await Promise.all([
+    fetchJsonFromCandidates(fetchImpl, SPOT_BASE_URLS, "/api/v3/exchangeInfo", null, {
+      label: "Spot exchange info",
+      retries: 1,
+    }),
+    fetchJsonFromCandidates(fetchImpl, USDM_BASE_URLS, "/fapi/v1/exchangeInfo", null, {
+      label: "USD-M exchange info",
+      retries: 1,
+    }),
+    fetchJsonFromCandidates(fetchImpl, SPOT_BASE_URLS, "/api/v3/ticker/24hr", null, {
+      label: "Spot 24h tickers",
+      retries: 2,
+    }),
+    fetchJsonFromCandidates(fetchImpl, USDM_BASE_URLS, "/fapi/v1/ticker/24hr", null, {
+      label: "USD-M 24h tickers",
+      retries: 2,
+    }),
+  ]);
+
+  const activeSpotSymbols = createSpotTradingSymbolSet(spotExchangeInfo);
+  const activeUsdmSymbols = createUsdmTradingSymbolSet(usdmExchangeInfo);
+  const spot24h = filterTickerRows(spot24hRaw, activeSpotSymbols);
+  const usdm24h = filterTickerRows(usdm24hRaw, activeUsdmSymbols);
 
   const spotSymbols = Array.from(
     new Set(
@@ -46,12 +61,12 @@ export async function collectMarketSnapshot(options = {}) {
   return {
     source,
     capturedAt,
-    spot24h: filterTickerRows(spot24h),
+    spot24h,
     spotRolling: {
-      "3d": filterTickerRows(spotRolling3d),
-      "7d": filterTickerRows(spotRolling7d),
+      "3d": filterTickerRows(spotRolling3d, activeSpotSymbols),
+      "7d": filterTickerRows(spotRolling7d, activeSpotSymbols),
     },
-    usdm24h: filterTickerRows(usdm24h),
+    usdm24h,
   };
 }
 
@@ -81,12 +96,17 @@ async function fetchSpotRollingWindow(fetchImpl, windowKey, symbols) {
   return pages;
 }
 
-function filterTickerRows(items) {
+function filterTickerRows(items, activeSymbols = null) {
   if (!Array.isArray(items)) {
     return [];
   }
 
-  return items.filter((item) => item?.symbol && isUsdtTradingSymbol(item.symbol));
+  return items.filter(
+    (item) =>
+      item?.symbol &&
+      isUsdtTradingSymbol(item.symbol) &&
+      (!activeSymbols || activeSymbols.has(item.symbol)),
+  );
 }
 
 function isUsdtTradingSymbol(symbol) {
@@ -96,6 +116,46 @@ function isUsdtTradingSymbol(symbol) {
     !symbol.includes("_") &&
     symbol.length > QUOTE_ASSET.length
   );
+}
+
+function createSpotTradingSymbolSet(exchangeInfo) {
+  const symbols = new Set();
+
+  for (const item of exchangeInfo?.symbols ?? []) {
+    if (item?.status !== "TRADING") {
+      continue;
+    }
+
+    if (item?.quoteAsset !== QUOTE_ASSET || !isUsdtTradingSymbol(item.symbol)) {
+      continue;
+    }
+
+    symbols.add(item.symbol);
+  }
+
+  return symbols;
+}
+
+function createUsdmTradingSymbolSet(exchangeInfo) {
+  const symbols = new Set();
+
+  for (const item of exchangeInfo?.symbols ?? []) {
+    if (item?.status !== "TRADING") {
+      continue;
+    }
+
+    if (item?.contractType !== "PERPETUAL") {
+      continue;
+    }
+
+    if (item?.quoteAsset !== QUOTE_ASSET || !isUsdtTradingSymbol(item.symbol)) {
+      continue;
+    }
+
+    symbols.add(item.symbol);
+  }
+
+  return symbols;
 }
 
 function chunk(list, size) {

@@ -4,10 +4,10 @@
 
 - 前端：Cloudflare Pages
 - 公共 API：Pages Functions / Workers runtime
+- 定时采集：独立 Cloudflare Worker + Cron Trigger
 - 数据库：D1
-- 定时采集：GitHub Actions
 
-页面和公开 API 不再在用户请求时直连 Binance。GitHub Actions 定时拉取 `spot + U 本位永续` 数据，写入 `POST /api/internal/ingest`，再由 Worker 落到 D1。前端 `/api/snapshot` 只读取 D1 快照。
+页面和公开 API 不再在用户请求时直连 Binance。独立的 Cron Worker 定时拉取 `spot + U 本位永续` 数据，并直接写入 D1。前端 `/api/snapshot` 只读取 D1 快照。
 
 ## 当前实现
 
@@ -43,8 +43,16 @@
 - `functions/api/internal/ingest.js`
 - 只接受 `POST`
 - 需要 `Authorization: Bearer <INGEST_SHARED_SECRET>` 或 `x-ingest-secret`
+- 这个接口现在主要用于手动补写或调试；生产定时采集优先走独立 Cron Worker
 
-### 4. D1 的用途
+### 4. 定时采集 Worker
+
+- `workers/collector.js`
+- `wrangler.collector.jsonc`
+- 每小时第 `17` 分钟执行一次
+- 也支持手动调用 `POST /run`
+
+### 5. D1 的用途
 
 D1 里有两张表：
 
@@ -151,33 +159,49 @@ npx wrangler d1 execute crypto-hot-coin --remote --file=./migrations/0001_init.s
 INGEST_SHARED_SECRET=一串足够长的随机字符串
 ```
 
-这个值要和 GitHub Secrets 里的 `INGEST_SHARED_SECRET` 保持一致。
+如果你要启用内部补写接口或 collector 的手动 `/run` 触发，可以让它和采集 Worker 上配置的同名 secret 保持一致。
 
-## GitHub Actions 定时采集
+## 部署 Cron Worker
 
-仓库已经带了：
+独立采集 Worker 的配置已经带了：
 
-- `.github/workflows/sync.yml`
-- `scripts/collect-and-push.mjs`
+- `workers/collector.js`
+- `wrangler.collector.jsonc`
 
-默认每小时第 `17` 分钟执行一次，也支持手动触发。
+它会使用同一个 D1 数据库，并在 Cloudflare 上每小时第 `17` 分执行一次。
 
-你需要在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions` 里配置两个 Secrets：
+部署命令：
 
-```text
-INGEST_BASE_URL=https://你的-pages-域名
-INGEST_SHARED_SECRET=和 Cloudflare 里一致的密钥
+```bash
+npx wrangler deploy -c wrangler.collector.jsonc
 ```
 
-建议：
+如果你想保留手动触发接口 `/run`，再给这个 Worker 写一个 secret：
 
-- 如果你用 `pages.dev`，值写成 `https://your-project.pages.dev`
-- 首次配置完成后，先手动运行一次 `Sync Binance Snapshots`
+```bash
+npx wrangler secret put INGEST_SHARED_SECRET -c wrangler.collector.jsonc
+```
+
+手动触发示例：
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer 你的密钥" \
+  https://trending-tokens-collector.<你的workers子域>.workers.dev/run
+```
+
+## 为什么仍然有风险
+
+Cron Worker 仍然属于 `Cloudflare runtime -> Binance` 这条链路。  
+这意味着它和之前的 Pages Functions 一样，仍然可能受到 Binance 的地区/出口限制影响。
+
+这个版本只是把“抓数据”从用户请求路径里剥离了出来，让站点至少能持续展示 D1 中最后一次成功快照；但它不能保证 Cloudflare 到 Binance 一定稳定。
 
 ## 为什么这版更适合免费方案
 
 - 用户请求只读 D1，不依赖 Cloudflare 运行时直接访问 Binance Futures
-- GitHub Actions 不需要额外服务器
+- 不需要本地常驻进程
+- 不需要 GitHub-hosted runner
 - 一小时同步一次足够满足小流量榜单站点
 - 就算偶发漏跑，页面仍能显示上一次成功快照
 
@@ -199,10 +223,10 @@ migrations/
   0001_init.sql
 scripts/
   collect-and-push.mjs
-.github/
-  workflows/
-    sync.yml
+workers/
+  collector.js
 wrangler.jsonc
+wrangler.collector.jsonc
 ```
 
 ## 检查

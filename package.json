@@ -7,6 +7,6 @@
     "dev": "npx wrangler pages dev public",
     "preview:static": "python3 -m http.server 8124 -d public",
     "sync:push": "node scripts/collect-and-push.mjs",
-    "check": "node --check public/app.js && node --check functions/_lib/snapshot-service.js && node --check functions/api/snapshot.js && node --check functions/api/internal/ingest.js && node --check scripts/collect-and-push.mjs"
+    "check": "node --check public/app.js && node --check functions/_lib/snapshot-service.js && node --check functions/_lib/binance-market-data.js && node --check functions/api/snapshot.js && node --check functions/api/internal/ingest.js && node --check scripts/collect-and-push.mjs && node --check workers/collector.js"
   }
 }

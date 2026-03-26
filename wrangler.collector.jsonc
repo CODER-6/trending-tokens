@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "trending-tokens-collector",
+  "main": "./workers/collector.js",
+  "compatibility_date": "2026-03-26",
+  "triggers": {
+    "crons": ["17 * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "crypto-hot-coin",
+      "database_id": "b6dd8648-b2b3-464f-9203-6a6ead7ce4e7"
+    }
+  ]
+}

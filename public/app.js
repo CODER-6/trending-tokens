@@ -471,6 +471,12 @@ function createInfoChip(label, options = {}) {
   return `<span class="info-chip${className}"${segmentAttr}>${escapeHtml(label)}</span>`;
 }
 
+function getSecondarySymbol(item) {
+  const displayName = String(item.displaySymbol || item.symbol || "").trim();
+  const rawSymbol = String(item.symbol || "").trim();
+  return rawSymbol && rawSymbol !== displayName ? rawSymbol : "";
+}
+
 function createInlineMetric(label, value, className = "") {
   const toneClass = className ? ` ${className}` : "";
   return `
@@ -512,13 +518,20 @@ function createCardChips(item, options = {}) {
     createInfoChip(accuracy.label, {
       className: `accuracy-chip ${accuracy.className}`,
     }),
-    createInfoChip(`最新价 ${formatPrice(item.lastPrice)}`, {
-      className: "metric-chip",
-    }),
     createInfoChip(`窗口 ${getWindowLabel()}`, {
       className: "window-chip",
     }),
   ];
+
+  if (options.includePrice !== false) {
+    chips.splice(
+      2,
+      0,
+      createInfoChip(`最新价 ${formatPrice(item.lastPrice)}`, {
+        className: "metric-chip",
+      }),
+    );
+  }
 
   if (options.includeChange) {
     chips.push(
@@ -541,7 +554,7 @@ function createCardChips(item, options = {}) {
 
 function createBoardCard(item, rank, direction) {
   const displayName = escapeHtml(item.displaySymbol || item.symbol);
-  const rawSymbol = escapeHtml(item.symbol);
+  const secondarySymbol = getSecondarySymbol(item);
   const directionLabel = direction === "loser" ? `${getWindowLabel()}跌幅` : `${getWindowLabel()}涨幅`;
 
   return `
@@ -551,7 +564,7 @@ function createBoardCard(item, rank, direction) {
           <span class="market-rank">#${rank}</span>
           <div class="market-card-copy">
             <h3>${displayName}</h3>
-            <p>${rawSymbol}</p>
+            ${secondarySymbol ? `<p>${escapeHtml(secondarySymbol)}</p>` : ""}
             ${item.dataIssue ? `<span class="market-inline-note">${escapeHtml(item.dataIssue)}</span>` : ""}
           </div>
         </div>
@@ -568,6 +581,7 @@ function createBoardCard(item, rank, direction) {
 }
 
 function createActivityCard(item, rank) {
+  const secondarySymbol = getSecondarySymbol(item);
   return `
     <article class="market-card market-card-activity">
       <div class="market-card-top">
@@ -575,23 +589,24 @@ function createActivityCard(item, rank) {
           <span class="market-rank">#${rank}</span>
           <div class="market-card-copy">
             <h3>${escapeHtml(item.displaySymbol || item.symbol)}</h3>
-            <p>${escapeHtml(item.symbol)}</p>
+            ${secondarySymbol ? `<p>${escapeHtml(secondarySymbol)}</p>` : ""}
             ${item.dataIssue ? `<span class="market-inline-note">${escapeHtml(item.dataIssue)}</span>` : ""}
           </div>
         </div>
-        <div class="market-primary ${getValueClass(item.rangePercent)}">
+      <div class="market-primary ${getValueClass(item.rangePercent)}">
           <span>${escapeHtml(`${getWindowLabel()}异动`)}</span>
           <strong>${escapeHtml(formatUnsignedPercent(item.rangePercent))}</strong>
         </div>
       </div>
-      <div class="market-chip-row">
-        ${createCardChips(item, { includeChange: true })}
-      </div>
-      <div class="detail-inline-row">
-        ${createInlineMetric("最新价", formatPrice(item.lastPrice))}
-        ${createInlineMetric(`${getWindowLabel()}涨跌`, formatPercent(item.changePercent), getValueClass(item.changePercent))}
-        ${createInlineMetric("周期高", formatPrice(item.windowHigh))}
-        ${createInlineMetric("周期低", formatPrice(item.windowLow))}
+      <div class="activity-meta-row">
+        <div class="market-chip-row">
+          ${createCardChips(item, { includeChange: true, includePrice: false })}
+        </div>
+        <div class="detail-inline-row">
+          ${createInlineMetric("最新价", formatPrice(item.lastPrice))}
+          ${createInlineMetric("周期高", formatPrice(item.windowHigh))}
+          ${createInlineMetric("周期低", formatPrice(item.windowLow))}
+        </div>
       </div>
     </article>
   `;

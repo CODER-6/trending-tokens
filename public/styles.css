@@ -657,19 +657,25 @@ h2 {
   border-color: rgba(31, 200, 221, 0.16);
 }
 
-.detail-inline-row {
+.activity-meta-row {
   margin-top: 8px;
   display: flex;
-  flex-wrap: nowrap;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   align-items: center;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
 }
 
-.detail-inline-row::-webkit-scrollbar {
-  display: none;
+.market-card-activity .market-chip-row,
+.market-card-activity .detail-inline-row {
+  margin-top: 0;
+}
+
+.detail-inline-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  line-height: 1.1;
 }
 
 .inline-metric {
@@ -940,6 +946,10 @@ h2 {
 
   .detail-inline-row {
     gap: 8px;
+  }
+
+  .activity-meta-row {
+    gap: 8px 12px;
   }
 
   .inline-metric,

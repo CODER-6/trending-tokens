@@ -657,32 +657,40 @@ h2 {
   border-color: rgba(31, 200, 221, 0.16);
 }
 
-.detail-grid {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.detail-inline-row {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
 }
 
-.detail-item {
-  padding: 9px 10px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(113, 95, 197, 0.1);
-  display: grid;
-  gap: 3px;
+.detail-inline-row::-webkit-scrollbar {
+  display: none;
 }
 
-.detail-item span {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.detail-item strong {
-  font-size: 0.88rem;
-  line-height: 1.2;
+.inline-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+
+.inline-metric-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.inline-metric strong {
+  font-size: 0.82rem;
+  line-height: 1;
 }
 
 .notes-list {
@@ -930,16 +938,19 @@ h2 {
     align-items: start;
   }
 
-  .detail-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
+  .detail-inline-row {
+    gap: 8px;
   }
 
-  .detail-item {
-    padding: 8px 9px;
+  .inline-metric,
+  .inline-metric strong {
+    font-size: 0.76rem;
   }
 
-  .detail-item span,
+  .inline-metric-label {
+    font-size: 9px;
+  }
+
   .info-chip,
   .count-pill,
   .section-chip {

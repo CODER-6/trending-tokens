@@ -471,13 +471,13 @@ function createInfoChip(label, options = {}) {
   return `<span class="info-chip${className}"${segmentAttr}>${escapeHtml(label)}</span>`;
 }
 
-function createDetailItem(label, value, className = "") {
+function createInlineMetric(label, value, className = "") {
   const toneClass = className ? ` ${className}` : "";
   return `
-    <div class="detail-item${toneClass}">
-      <span>${escapeHtml(label)}</span>
+    <span class="inline-metric${toneClass}">
+      <span class="inline-metric-label">${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
-    </div>
+    </span>
   `;
 }
 
@@ -587,11 +587,11 @@ function createActivityCard(item, rank) {
       <div class="market-chip-row">
         ${createCardChips(item, { includeChange: true })}
       </div>
-      <div class="detail-grid">
-        ${createDetailItem("最新价", formatPrice(item.lastPrice))}
-        ${createDetailItem(`${getWindowLabel()}涨跌`, formatPercent(item.changePercent), getValueClass(item.changePercent))}
-        ${createDetailItem("周期最高", formatPrice(item.windowHigh))}
-        ${createDetailItem("周期最低", formatPrice(item.windowLow))}
+      <div class="detail-inline-row">
+        ${createInlineMetric("最新价", formatPrice(item.lastPrice))}
+        ${createInlineMetric(`${getWindowLabel()}涨跌`, formatPercent(item.changePercent), getValueClass(item.changePercent))}
+        ${createInlineMetric("周期高", formatPrice(item.windowHigh))}
+        ${createInlineMetric("周期低", formatPrice(item.windowLow))}
       </div>
     </article>
   `;

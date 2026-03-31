@@ -1,0 +1,435 @@
+{
+  "1d": {
+    "generatedAt": "2026-03-31T09:30:00.000Z",
+    "window": "1d",
+    "windowLabel": "1天",
+    "counts": {
+      "spot": 4,
+      "usdm": 4,
+      "total": 8
+    },
+    "diagnostics": {
+      "usdmHistoryFailures": [],
+      "usdmInsufficientHistory": []
+    },
+    "notes": [
+      {
+        "kind": "exact",
+        "text": "现货 1 天窗口按滚动快照展示，适合验证移动端列表与涨跌配色。"
+      }
+    ],
+    "items": [
+      {
+        "symbol": "WIFUSDT",
+        "displaySymbol": "WIFUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 3.2871,
+        "changePercent": 15.8,
+        "windowHigh": 3.384,
+        "windowLow": 2.762,
+        "rangePercent": 22.52,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "PEPEUSDT",
+        "displaySymbol": "PEPEUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 0.00001384,
+        "changePercent": 11.46,
+        "windowHigh": 0.00001402,
+        "windowLow": 0.00001162,
+        "rangePercent": 20.65,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "SOLUSDT",
+        "displaySymbol": "SOLUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 196.48,
+        "changePercent": 8.92,
+        "windowHigh": 198.11,
+        "windowLow": 181.24,
+        "rangePercent": 9.31,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "SUIUSDT",
+        "displaySymbol": "SUIUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 2.174,
+        "changePercent": 6.41,
+        "windowHigh": 2.223,
+        "windowLow": 2.011,
+        "rangePercent": 10.54,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "displaySymbol": "DOGEUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 0.1827,
+        "changePercent": -3.88,
+        "windowHigh": 0.1912,
+        "windowLow": 0.1783,
+        "rangePercent": 7.24,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "ARBUSDT",
+        "displaySymbol": "ARBUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 1.146,
+        "changePercent": -5.24,
+        "windowHigh": 1.229,
+        "windowLow": 1.132,
+        "rangePercent": 8.57,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "XRPUSDT",
+        "displaySymbol": "XRPUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 0.6421,
+        "changePercent": 2.31,
+        "windowHigh": 0.6512,
+        "windowLow": 0.6184,
+        "rangePercent": 5.3,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "1000BONKUSDT",
+        "displaySymbol": "1000BONKUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 0.02583,
+        "changePercent": -6.13,
+        "windowHigh": 0.02815,
+        "windowLow": 0.0254,
+        "rangePercent": 10.83,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      }
+    ]
+  },
+  "3d": {
+    "generatedAt": "2026-03-31T09:30:00.000Z",
+    "window": "3d",
+    "windowLabel": "3天",
+    "counts": {
+      "spot": 4,
+      "usdm": 4,
+      "total": 8
+    },
+    "diagnostics": {
+      "usdmHistoryFailures": [],
+      "usdmInsufficientHistory": [
+        "PEPEUSDT",
+        "1000BONKUSDT"
+      ]
+    },
+    "notes": [
+      {
+        "kind": "approx",
+        "text": "U 本位 3 天窗口演示了近似历史数据标签，方便检查卡片中的精度提示。"
+      }
+    ],
+    "items": [
+      {
+        "symbol": "WIFUSDT",
+        "displaySymbol": "WIFUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 3.2871,
+        "changePercent": 24.62,
+        "windowHigh": 3.384,
+        "windowLow": 2.431,
+        "rangePercent": 39.2,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "PEPEUSDT",
+        "displaySymbol": "PEPEUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 0.00001384,
+        "changePercent": 18.74,
+        "windowHigh": 0.00001402,
+        "windowLow": 0.00001034,
+        "rangePercent": 35.59,
+        "isExact": false,
+        "dataStatus": "approx",
+        "dataIssue": "3天历史为近似值"
+      },
+      {
+        "symbol": "SOLUSDT",
+        "displaySymbol": "SOLUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 196.48,
+        "changePercent": 12.17,
+        "windowHigh": 198.11,
+        "windowLow": 170.82,
+        "rangePercent": 15.98,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "SUIUSDT",
+        "displaySymbol": "SUIUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 2.174,
+        "changePercent": 9.63,
+        "windowHigh": 2.223,
+        "windowLow": 1.874,
+        "rangePercent": 18.62,
+        "isExact": false,
+        "dataStatus": "approx",
+        "dataIssue": "3天历史为近似值"
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "displaySymbol": "DOGEUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 0.1827,
+        "changePercent": -6.45,
+        "windowHigh": 0.1948,
+        "windowLow": 0.1761,
+        "rangePercent": 10.62,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "ARBUSDT",
+        "displaySymbol": "ARBUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 1.146,
+        "changePercent": -9.82,
+        "windowHigh": 1.264,
+        "windowLow": 1.118,
+        "rangePercent": 13.06,
+        "isExact": false,
+        "dataStatus": "approx",
+        "dataIssue": "3天历史为近似值"
+      },
+      {
+        "symbol": "XRPUSDT",
+        "displaySymbol": "XRPUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 0.6421,
+        "changePercent": 4.74,
+        "windowHigh": 0.6672,
+        "windowLow": 0.5988,
+        "rangePercent": 11.42,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "1000BONKUSDT",
+        "displaySymbol": "1000BONKUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 0.02583,
+        "changePercent": -12.48,
+        "windowHigh": 0.02984,
+        "windowLow": 0.02496,
+        "rangePercent": 19.55,
+        "isExact": false,
+        "dataStatus": "history-short",
+        "dataIssue": "历史样本不足"
+      }
+    ]
+  },
+  "7d": {
+    "generatedAt": "2026-03-31T09:30:00.000Z",
+    "window": "7d",
+    "windowLabel": "7天",
+    "counts": {
+      "spot": 4,
+      "usdm": 4,
+      "total": 8
+    },
+    "diagnostics": {
+      "usdmHistoryFailures": [
+        "1000BONKUSDT"
+      ],
+      "usdmInsufficientHistory": [
+        "PEPEUSDT"
+      ]
+    },
+    "notes": [
+      {
+        "kind": "warn",
+        "text": "7 天窗口里故意保留了历史不足与缺失提示，方便确认移动端上这些状态不会挤坏布局。"
+      }
+    ],
+    "items": [
+      {
+        "symbol": "WIFUSDT",
+        "displaySymbol": "WIFUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 3.2871,
+        "changePercent": 31.84,
+        "windowHigh": 3.492,
+        "windowLow": 2.118,
+        "rangePercent": 64.87,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "PEPEUSDT",
+        "displaySymbol": "PEPEUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 0.00001384,
+        "changePercent": 21.52,
+        "windowHigh": 0.00001421,
+        "windowLow": 0.00000974,
+        "rangePercent": 45.89,
+        "isExact": false,
+        "dataStatus": "history-short",
+        "dataIssue": "7天历史仍在积累"
+      },
+      {
+        "symbol": "SOLUSDT",
+        "displaySymbol": "SOLUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 196.48,
+        "changePercent": 15.36,
+        "windowHigh": 201.63,
+        "windowLow": 158.24,
+        "rangePercent": 27.42,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "SUIUSDT",
+        "displaySymbol": "SUIUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 2.174,
+        "changePercent": 12.94,
+        "windowHigh": 2.281,
+        "windowLow": 1.702,
+        "rangePercent": 34.02,
+        "isExact": false,
+        "dataStatus": "approx",
+        "dataIssue": "7天历史为近似值"
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "displaySymbol": "DOGEUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 0.1827,
+        "changePercent": -9.23,
+        "windowHigh": 0.1981,
+        "windowLow": 0.1692,
+        "rangePercent": 17.08,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "ARBUSDT",
+        "displaySymbol": "ARBUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 1.146,
+        "changePercent": -14.78,
+        "windowHigh": 1.311,
+        "windowLow": 1.102,
+        "rangePercent": 18.96,
+        "isExact": false,
+        "dataStatus": "approx",
+        "dataIssue": "7天历史为近似值"
+      },
+      {
+        "symbol": "XRPUSDT",
+        "displaySymbol": "XRPUSDT",
+        "market": "spot",
+        "segment": "spot",
+        "segmentLabel": "现货",
+        "lastPrice": 0.6421,
+        "changePercent": 6.27,
+        "windowHigh": 0.6882,
+        "windowLow": 0.5714,
+        "rangePercent": 20.43,
+        "isExact": true,
+        "dataStatus": "exact",
+        "dataIssue": ""
+      },
+      {
+        "symbol": "1000BONKUSDT",
+        "displaySymbol": "1000BONKUSDT",
+        "market": "perpetual",
+        "segment": "usdm",
+        "segmentLabel": "U本位永续",
+        "lastPrice": 0.02583,
+        "changePercent": -18.11,
+        "windowHigh": 0.03156,
+        "windowLow": 0.02472,
+        "rangePercent": 27.67,
+        "isExact": false,
+        "dataStatus": "history-failed",
+        "dataIssue": "7天历史缺失"
+      }
+    ]
+  }
+}

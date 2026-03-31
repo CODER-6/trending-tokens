@@ -3,22 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Binance USDT Movers</title>
+    <meta name="theme-color" content="#f6f3ff" />
+    <title>Crypto Hot Coin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
+  <body id="top">
     <div class="page-shell">
-      <header class="hero-card">
-        <p class="eyebrow">BINANCE MARKET SCREENER</p>
-        <div class="hero-main">
-          <div>
-            <h1>现货 + 永续涨跌榜</h1>
+      <header class="app-topbar">
+        <div>
+          <p class="topbar-label">crypto hot coin</p>
+          <strong class="topbar-title">移动端优先行情榜单</strong>
+        </div>
+        <div class="topbar-status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Cloudflare Pages / D1</span>
+        </div>
+      </header>
+
+      <section class="hero-card">
+        <div class="hero-grid">
+          <div class="hero-copy-block">
+            <p class="eyebrow">BINANCE SNAPSHOT</p>
+            <h1>现货 + U 本位永续<br />USDT 热度榜</h1>
             <p class="hero-copy">
-              这个版本把前端部署到 Cloudflare Pages，把聚合接口放到 Pages Functions，
-              并用 D1 保存由定时任务写入的榜单快照。页面只统计币安现货和 U 本位永续里的 USDT
-              交易对，按最近 <span id="heroWindowLabel">1天</span> 涨跌幅与异动幅度筛选榜单。
+              用更适合手机浏览的卡片流来展示涨幅榜、跌幅榜和异动榜。当前按最近
+              <span id="heroWindowLabel">1天</span> 的服务端快照聚合展示，支持搜索、切换市场和筛选榜单数量。
             </p>
           </div>
+
           <div class="hero-meta">
             <div class="meta-box">
               <span class="meta-label">标的数量</span>
@@ -28,19 +46,24 @@
               <span class="meta-label">最后更新时间</span>
               <strong id="generatedAt">-</strong>
             </div>
-            <div class="meta-box">
+            <div class="meta-box meta-box-wide">
               <span class="meta-label">数据来源</span>
               <strong id="dataSource">Pages Function / D1</strong>
             </div>
           </div>
         </div>
-      </header>
+      </section>
 
       <section class="toolbar-card">
-        <div class="tabs-block">
-          <p class="block-label">时间窗口</p>
-          <div class="window-tabs" id="windowTabs"></div>
+        <div class="toolbar-top">
+          <div class="toolbar-heading">
+            <p class="block-label">榜单筛选</p>
+            <h2>快速切换你想看的市场</h2>
+          </div>
+          <button id="refreshButton" class="icon-button" type="button">刷新快照</button>
         </div>
+
+        <div class="window-tabs" id="windowTabs"></div>
 
         <div class="controls-grid">
           <label class="control">
@@ -62,17 +85,15 @@
             </select>
           </label>
 
-          <label class="control search-control">
-            <span>搜索</span>
-            <input id="searchInput" type="search" placeholder="BTC / USDT / ETHUSDT" />
+          <label class="control control-search">
+            <span>搜索币对</span>
+            <input id="searchInput" type="search" placeholder="BTC / ETH / DOGEUSDT" />
           </label>
-
-          <button id="refreshButton" class="refresh-button" type="button">重新读取快照</button>
         </div>
       </section>
 
       <section class="status-card">
-        <div>
+        <div class="status-copy">
           <p class="status-label">状态</p>
           <p id="statusText" class="status-text">正在加载榜单...</p>
         </div>
@@ -82,90 +103,65 @@
         </div>
       </section>
 
-      <section class="notes-card">
-        <div class="notes-header">
-          <p class="block-label">数据说明</p>
-        </div>
-        <div id="notesList" class="notes-list"></div>
-      </section>
+      <nav class="section-nav" aria-label="榜单导航">
+        <a href="#gainersSection">涨幅榜</a>
+        <a href="#losersSection">跌幅榜</a>
+        <a href="#activitySection">异动榜</a>
+      </nav>
 
       <section class="board-grid">
-        <article class="table-card">
-          <div class="table-head">
+        <article class="board-card" id="gainersSection">
+          <div class="section-head">
             <div>
               <p class="board-kicker">TOP GAINERS</p>
               <h2>涨幅榜</h2>
             </div>
+            <span class="section-chip">上涨最快</span>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>交易对</th>
-                  <th>市场</th>
-                  <th>最新价</th>
-                  <th id="gainerWindowHead">涨跌幅</th>
-                </tr>
-              </thead>
-              <tbody id="gainersBody"></tbody>
-            </table>
-          </div>
+          <div class="leaderboard-list" id="gainersList"></div>
         </article>
 
-        <article class="table-card">
-          <div class="table-head">
+        <article class="board-card" id="losersSection">
+          <div class="section-head">
             <div>
               <p class="board-kicker">TOP LOSERS</p>
               <h2>跌幅榜</h2>
             </div>
+            <span class="section-chip">回撤最快</span>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>交易对</th>
-                  <th>市场</th>
-                  <th>最新价</th>
-                  <th id="loserWindowHead">涨跌幅</th>
-                </tr>
-              </thead>
-              <tbody id="losersBody"></tbody>
-            </table>
-          </div>
+          <div class="leaderboard-list" id="losersList"></div>
         </article>
       </section>
 
-      <section class="table-card full-table-card">
-        <div class="table-head">
+      <section class="board-card board-card-full" id="activitySection">
+        <div class="section-head">
           <div>
             <p class="board-kicker">VOLATILITY LEADERBOARD</p>
             <h2>异动榜单</h2>
           </div>
+          <span class="section-chip">波动最大</span>
         </div>
+        <div class="leaderboard-list leaderboard-list-activity" id="activityList"></div>
+      </section>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>交易对</th>
-                <th>市场</th>
-                <th>最新价</th>
-                <th id="activityChangeHead">涨跌幅</th>
-                <th>周期最高</th>
-                <th>周期最低</th>
-                <th id="activityRangeHead">异动幅度</th>
-                <th>精度</th>
-              </tr>
-            </thead>
-            <tbody id="activityBody"></tbody>
-          </table>
+      <section class="notes-card">
+        <div class="notes-header">
+          <div>
+            <p class="block-label">数据说明</p>
+            <h2>快照备注与精度提示</h2>
+          </div>
         </div>
+        <div id="notesList" class="notes-list"></div>
       </section>
     </div>
 
+    <nav class="dock-nav" aria-label="移动端导航">
+      <a href="#top">总览</a>
+      <a href="#gainersSection">涨幅</a>
+      <a href="#losersSection">跌幅</a>
+      <a href="#activitySection">异动</a>
+    </nav>
+
     <script type="module" src="/app.js"></script>
   </body>
-  </html>
+</html>

@@ -22,6 +22,26 @@ const WINDOW_CONFIG = {
 };
 
 const runtimeCache = new Map();
+const DEMO_SNAPSHOTS_PATH = "/demo-snapshots.json";
+const LOCAL_PREVIEW_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+const NOTE_KIND_META = {
+  exact: {
+    className: "is-exact",
+    label: "精确",
+  },
+  approx: {
+    className: "is-approx",
+    label: "近似",
+  },
+  info: {
+    className: "is-info",
+    label: "说明",
+  },
+  warn: {
+    className: "is-warn",
+    label: "提醒",
+  },
+};
 
 const state = {
   selectedWindow: "1d",
@@ -48,14 +68,19 @@ const elements = {
   countUsdm: document.querySelector("#countUsdm"),
   dataSource: document.querySelector("#dataSource"),
   heroWindowLabel: document.querySelector("#heroWindowLabel"),
-  gainerWindowHead: document.querySelector("#gainerWindowHead"),
-  loserWindowHead: document.querySelector("#loserWindowHead"),
-  activityChangeHead: document.querySelector("#activityChangeHead"),
-  activityRangeHead: document.querySelector("#activityRangeHead"),
-  gainersBody: document.querySelector("#gainersBody"),
-  losersBody: document.querySelector("#losersBody"),
-  activityBody: document.querySelector("#activityBody"),
+  gainersList: document.querySelector("#gainersList"),
+  losersList: document.querySelector("#losersList"),
+  activityList: document.querySelector("#activityList"),
 };
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 function readStoredEntry(key) {
   try {
@@ -81,6 +106,10 @@ function writeStoredEntry(key, entry) {
   } catch {
     // Ignore storage quota failures.
   }
+}
+
+function isLocalPreview() {
+  return LOCAL_PREVIEW_HOSTNAMES.has(window.location.hostname);
 }
 
 async function withCache(key, ttlMs, loader, options = {}) {
@@ -205,13 +234,74 @@ async function fetchSnapshotFromApi(windowKey, options = {}) {
   });
 }
 
+function shouldUseDemoFallback(error) {
+  if (!isLocalPreview()) {
+    return false;
+  }
+
+  const message = String(error?.message ?? "");
+  return message.includes("invalid JSON") || message.includes("fetch") || error?.name === "AbortError";
+}
+
+async function loadDemoSnapshot(windowKey, reason = "") {
+  const url = new URL(DEMO_SNAPSHOTS_PATH, window.location.origin);
+  const bundle = await fetchJson(url, {
+    label: "Local demo snapshots",
+    retries: 0,
+    timeoutMs: 8_000,
+  });
+
+  const payload = bundle?.[windowKey];
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Local demo snapshot is missing for ${windowKey}`);
+  }
+
+  const notes = Array.isArray(payload.notes) ? [...payload.notes] : [];
+  notes.unshift({
+    kind: "info",
+    text: "当前展示的是本地演示快照，用于静态预览前端界面；切到带 Pages Functions 的 Wrangler 预览后会自动改为真实接口数据。",
+  });
+
+  if (reason) {
+    notes.push({
+      kind: "warn",
+      text: `已自动回退到演示数据，原因：${reason}`,
+    });
+  }
+
+  return {
+    ...payload,
+    notes,
+    backend: {
+      cacheStatus: "demo-local",
+      storage: "demo",
+      hasD1: false,
+      isDemo: true,
+      isStale: false,
+      servedAt: new Date().toISOString(),
+      fallbackReason: reason,
+    },
+  };
+}
+
 async function getSnapshot(windowKey, options = {}, setStage = () => {}) {
   setStage("正在请求服务端榜单...");
 
   return withCache(
     `snapshot:${windowKey}`,
     WINDOW_CONFIG[windowKey].ttlMs,
-    () => fetchSnapshotFromApi(windowKey, options),
+    async () => {
+      try {
+        return await fetchSnapshotFromApi(windowKey, options);
+      } catch (error) {
+        if (!shouldUseDemoFallback(error)) {
+          throw error;
+        }
+
+        setStage("接口不可用，正在切换本地演示快照...");
+        return loadDemoSnapshot(windowKey, String(error.message ?? ""));
+      }
+    },
     options,
   );
 }
@@ -219,10 +309,6 @@ async function getSnapshot(windowKey, options = {}, setStage = () => {}) {
 function updateWindowLabels() {
   const label = WINDOW_CONFIG[state.selectedWindow]?.label ?? state.selectedWindow;
   elements.heroWindowLabel.textContent = label;
-  elements.gainerWindowHead.textContent = `${label}涨跌幅`;
-  elements.loserWindowHead.textContent = `${label}涨跌幅`;
-  elements.activityChangeHead.textContent = `${label}涨跌幅`;
-  elements.activityRangeHead.textContent = `${label}异动幅度`;
 }
 
 function renderWindowTabs() {
@@ -336,10 +422,12 @@ function getFilteredItems() {
     }
 
     const keyword = state.searchText.toLowerCase();
+    const displaySymbol = String(item.displaySymbol ?? "").toLowerCase();
+    const segmentLabel = String(item.segmentLabel ?? "").toLowerCase();
     return (
       item.symbol.toLowerCase().includes(keyword) ||
-      item.displaySymbol.toLowerCase().includes(keyword) ||
-      item.segmentLabel.toLowerCase().includes(keyword)
+      displaySymbol.includes(keyword) ||
+      segmentLabel.includes(keyword)
     );
   });
 }
@@ -373,12 +461,22 @@ function sortByActivity(items) {
   return copy;
 }
 
-function createSymbolCell(item) {
+function getWindowLabel() {
+  return WINDOW_CONFIG[state.selectedWindow]?.label ?? state.selectedWindow;
+}
+
+function createInfoChip(label, options = {}) {
+  const className = options.className ? ` ${options.className}` : "";
+  const segmentAttr = options.segment ? ` data-segment="${escapeHtml(options.segment)}"` : "";
+  return `<span class="info-chip${className}"${segmentAttr}>${escapeHtml(label)}</span>`;
+}
+
+function createDetailItem(label, value, className = "") {
+  const toneClass = className ? ` ${className}` : "";
   return `
-    <div class="symbol-cell">
-      <span class="symbol-main">${item.displaySymbol || item.symbol}</span>
-      <span class="symbol-sub">${item.symbol}</span>
-      ${item.dataIssue ? `<span class="symbol-issue">${item.dataIssue}</span>` : ""}
+    <div class="detail-item${toneClass}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
     </div>
   `;
 }
@@ -404,67 +502,139 @@ function getAccuracyMeta(item) {
   };
 }
 
-function createBoardRow(item, rank) {
-  return `
-    <tr>
-      <td>${rank}</td>
-      <td>${createSymbolCell(item)}</td>
-      <td><span class="segment-badge" data-segment="${item.segment}">${item.segmentLabel}</span></td>
-      <td>${formatPrice(item.lastPrice)}</td>
-      <td class="${getValueClass(item.changePercent)}">${formatPercent(item.changePercent)}</td>
-    </tr>
-  `;
-}
-
-function createActivityRow(item, rank) {
+function createCardChips(item, options = {}) {
   const accuracy = getAccuracyMeta(item);
+  const chips = [
+    createInfoChip(item.segmentLabel, {
+      className: "segment-chip",
+      segment: item.segment,
+    }),
+    createInfoChip(accuracy.label, {
+      className: `accuracy-chip ${accuracy.className}`,
+    }),
+    createInfoChip(`最新价 ${formatPrice(item.lastPrice)}`, {
+      className: "metric-chip",
+    }),
+    createInfoChip(`窗口 ${getWindowLabel()}`, {
+      className: "window-chip",
+    }),
+  ];
+
+  if (options.includeChange) {
+    chips.push(
+      createInfoChip(`${getWindowLabel()}涨跌 ${formatPercent(item.changePercent)}`, {
+        className: getValueClass(item.changePercent),
+      }),
+    );
+  }
+
+  if (item.dataIssue) {
+    chips.push(
+      createInfoChip(item.dataIssue, {
+        className: "warn-chip",
+      }),
+    );
+  }
+
+  return chips.join("");
+}
+
+function createBoardCard(item, rank, direction) {
+  const displayName = escapeHtml(item.displaySymbol || item.symbol);
+  const rawSymbol = escapeHtml(item.symbol);
+  const directionLabel = direction === "loser" ? `${getWindowLabel()}跌幅` : `${getWindowLabel()}涨幅`;
+
   return `
-    <tr>
-      <td>${rank}</td>
-      <td>${createSymbolCell(item)}</td>
-      <td><span class="segment-badge" data-segment="${item.segment}">${item.segmentLabel}</span></td>
-      <td>${formatPrice(item.lastPrice)}</td>
-      <td class="${getValueClass(item.changePercent)}">${formatPercent(item.changePercent)}</td>
-      <td>${formatPrice(item.windowHigh)}</td>
-      <td>${formatPrice(item.windowLow)}</td>
-      <td class="${getValueClass(item.rangePercent)}">${formatUnsignedPercent(item.rangePercent)}</td>
-      <td>
-        <span class="accuracy-badge ${accuracy.className}">
-          ${accuracy.label}
-        </span>
-      </td>
-    </tr>
+    <article class="market-card market-card-${direction}">
+      <div class="market-card-top">
+        <div class="market-title-row">
+          <span class="market-rank">#${rank}</span>
+          <div class="market-card-copy">
+            <h3>${displayName}</h3>
+            <p>${rawSymbol}</p>
+            ${item.dataIssue ? `<span class="market-inline-note">${escapeHtml(item.dataIssue)}</span>` : ""}
+          </div>
+        </div>
+        <div class="market-primary ${getValueClass(item.changePercent)}">
+          <span>${escapeHtml(directionLabel)}</span>
+          <strong>${escapeHtml(formatPercent(item.changePercent))}</strong>
+        </div>
+      </div>
+      <div class="market-chip-row">
+        ${createCardChips(item)}
+      </div>
+    </article>
   `;
 }
 
-function renderEmptyState(target, message, colspan) {
-  target.innerHTML = `<tr><td class="empty-state" colspan="${colspan}">${message}</td></tr>`;
+function createActivityCard(item, rank) {
+  return `
+    <article class="market-card market-card-activity">
+      <div class="market-card-top">
+        <div class="market-title-row">
+          <span class="market-rank">#${rank}</span>
+          <div class="market-card-copy">
+            <h3>${escapeHtml(item.displaySymbol || item.symbol)}</h3>
+            <p>${escapeHtml(item.symbol)}</p>
+            ${item.dataIssue ? `<span class="market-inline-note">${escapeHtml(item.dataIssue)}</span>` : ""}
+          </div>
+        </div>
+        <div class="market-primary ${getValueClass(item.rangePercent)}">
+          <span>${escapeHtml(`${getWindowLabel()}异动`)}</span>
+          <strong>${escapeHtml(formatUnsignedPercent(item.rangePercent))}</strong>
+        </div>
+      </div>
+      <div class="market-chip-row">
+        ${createCardChips(item, { includeChange: true })}
+      </div>
+      <div class="detail-grid">
+        ${createDetailItem("最新价", formatPrice(item.lastPrice))}
+        ${createDetailItem(`${getWindowLabel()}涨跌`, formatPercent(item.changePercent), getValueClass(item.changePercent))}
+        ${createDetailItem("周期最高", formatPrice(item.windowHigh))}
+        ${createDetailItem("周期最低", formatPrice(item.windowLow))}
+      </div>
+    </article>
+  `;
+}
+
+function renderEmptyState(target, message) {
+  target.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
 function renderNotes() {
   const notes = Array.isArray(state.payload?.notes) ? state.payload.notes : [];
+  if (notes.length === 0) {
+    renderEmptyState(elements.notesList, "当前窗口没有额外说明。");
+    return;
+  }
+
   elements.notesList.innerHTML = notes
-    .map(
-      (note) => `
+    .map((note) => {
+      const meta = NOTE_KIND_META[note.kind] ?? NOTE_KIND_META.info;
+      return `
         <div class="note-row">
-          <span class="note-tag is-${note.kind}">${note.kind}</span>
-          <p>${note.text}</p>
+          <span class="note-tag ${meta.className}">${meta.label}</span>
+          <p>${escapeHtml(note.text)}</p>
         </div>
-      `,
-    )
+      `;
+    })
     .join("");
 }
 
 function getDataSourceLabel(payload) {
+  if (payload?.backend?.isDemo) {
+    return "Local Demo / 静态预览";
+  }
+
   if (!payload?.backend?.hasD1) {
-    return "Pages Function / 未配置 D1";
+    return "Pages / 未配置 D1";
   }
 
   if (payload?.backend?.isStale) {
-    return "Pages Function / D1 旧快照";
+    return "Pages / D1 旧快照";
   }
 
-  return "Pages Function / D1";
+  return "Pages / D1 实时";
 }
 
 function renderMeta() {
@@ -485,22 +655,26 @@ function renderTables() {
   const activityItems = sortByActivity(filtered).slice(0, state.leaderboardLimit);
 
   if (gainers.length === 0) {
-    renderEmptyState(elements.gainersBody, "当前筛选条件下没有数据。", 5);
+    renderEmptyState(elements.gainersList, "当前筛选条件下没有数据。");
   } else {
-    elements.gainersBody.innerHTML = gainers.map((item, index) => createBoardRow(item, index + 1)).join("");
+    elements.gainersList.innerHTML = gainers
+      .map((item, index) => createBoardCard(item, index + 1, "gainer"))
+      .join("");
   }
 
   if (losers.length === 0) {
-    renderEmptyState(elements.losersBody, "当前筛选条件下没有数据。", 5);
+    renderEmptyState(elements.losersList, "当前筛选条件下没有数据。");
   } else {
-    elements.losersBody.innerHTML = losers.map((item, index) => createBoardRow(item, index + 1)).join("");
+    elements.losersList.innerHTML = losers
+      .map((item, index) => createBoardCard(item, index + 1, "loser"))
+      .join("");
   }
 
   if (activityItems.length === 0) {
-    renderEmptyState(elements.activityBody, "当前筛选条件下没有数据。", 9);
+    renderEmptyState(elements.activityList, "当前筛选条件下没有数据。");
   } else {
-    elements.activityBody.innerHTML = activityItems
-      .map((item, index) => createActivityRow(item, index + 1))
+    elements.activityList.innerHTML = activityItems
+      .map((item, index) => createActivityCard(item, index + 1))
       .join("");
   }
 }
@@ -520,16 +694,21 @@ function buildLoadedStatus(payload) {
     (payload.diagnostics?.usdmHistoryFailures?.length ?? 0) +
     (payload.diagnostics?.usdmInsufficientHistory?.length ?? 0);
 
-  let suffix = "";
+  const statusParts = [`已载入 ${payload.windowLabel} 榜单`, `共 ${payload.counts.total} 个标的`];
+
+  if (payload.backend?.isDemo) {
+    statusParts.push("当前为本地演示数据");
+  }
+
   if (payload.backend?.isStale) {
-    suffix += " 当前展示的是旧快照，等待下一次定时同步。";
+    statusParts.push("当前展示的是旧快照");
   }
 
   if (payload.window !== "1d" && missingCount > 0) {
-    suffix += ` 其中 ${missingCount} 个永续标的历史仍在积累。`;
+    statusParts.push(`${missingCount} 个永续标的历史仍在积累`);
   }
 
-  return `已载入 ${payload.windowLabel} 榜单，共 ${payload.counts.total} 个标的。${suffix}`;
+  return `${statusParts.join("，")}。`;
 }
 
 async function loadSnapshot(options = {}) {
@@ -568,9 +747,9 @@ async function loadSnapshot(options = {}) {
 
     setStatus(`加载失败：${error.message ? `(${error.message})` : "请检查 /api/snapshot 或先运行同步任务"}`);
     renderNotes();
-    renderEmptyState(elements.gainersBody, "未能获取数据。", 5);
-    renderEmptyState(elements.losersBody, "未能获取数据。", 5);
-    renderEmptyState(elements.activityBody, "未能获取数据。", 9);
+    renderEmptyState(elements.gainersList, "未能获取数据。");
+    renderEmptyState(elements.losersList, "未能获取数据。");
+    renderEmptyState(elements.activityList, "未能获取数据。");
   } finally {
     if (state.loadId === currentLoadId) {
       state.loading = false;

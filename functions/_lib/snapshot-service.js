@@ -40,7 +40,14 @@ export async function getSnapshot(env, windowKey, options = {}) {
   const cached = runtimeCache.get(cacheKey);
 
   if (!force && cached?.value && cached.memoryExpiresAt > now) {
-    return decorateSnapshot(cached.value, {
+    const repairedCachedValue = await maybeRepairUsdmSnapshot(env, cached.value, windowKey);
+    runtimeCache.set(cacheKey, {
+      value: repairedCachedValue,
+      memoryExpiresAt: cached.memoryExpiresAt,
+      snapshotExpiresAt: cached.snapshotExpiresAt,
+    });
+
+    return decorateSnapshot(repairedCachedValue, {
       cacheStatus: "memory-hit",
       storage: "d1",
       hasD1: true,
@@ -54,13 +61,15 @@ export async function getSnapshot(env, windowKey, options = {}) {
     throw new Error("No ingested snapshot available yet");
   }
 
+  const repairedValue = await maybeRepairUsdmSnapshot(env, dbEntry.value, windowKey);
+
   runtimeCache.set(cacheKey, {
-    value: dbEntry.value,
+    value: repairedValue,
     memoryExpiresAt: now + MEMORY_CACHE_MS,
     snapshotExpiresAt: dbEntry.expiresAt,
   });
 
-  return decorateSnapshot(dbEntry.value, {
+  return decorateSnapshot(repairedValue, {
     cacheStatus: force ? "reload" : "d1-hit",
     storage: "d1",
     hasD1: true,
@@ -242,6 +251,113 @@ function buildSnapshotFromIngest(normalized, windowKey, historyState) {
       historyLoadError: effectiveHistoryState.loadError,
     }),
     items,
+  };
+}
+
+async function maybeRepairUsdmSnapshot(env, snapshot, windowKey) {
+  if (!snapshot || snapshot.counts?.usdm > 0 || !hasD1(env)) {
+    return snapshot;
+  }
+
+  try {
+    const referenceTimeMs = parseTimestamp(snapshot.generatedAt) ?? Date.now();
+    const historyState = await loadUsdmHistoryRows(env, WINDOW_CONFIG["7d"].days, referenceTimeMs);
+    const fallbackItems = buildUsdmHistoryFallbackItems(windowKey, historyState);
+
+    if (fallbackItems.length === 0) {
+      return addSnapshotNote(snapshot, {
+        kind: "warn",
+        text: `U 本位永续 ${windowKey} 数据当前不可用；最近一次快照未能写入合约结果。`,
+      });
+    }
+
+    const spotItems = Array.isArray(snapshot.items)
+      ? snapshot.items.filter((item) => item?.segment !== "usdm")
+      : [];
+
+    return {
+      ...snapshot,
+      counts: {
+        spot: spotItems.length,
+        usdm: fallbackItems.length,
+        total: spotItems.length + fallbackItems.length,
+      },
+      diagnostics: {
+        ...(snapshot.diagnostics ?? {}),
+        usdmRecoveredFromHistory: fallbackItems.length,
+      },
+      notes: addSnapshotNote(snapshot, {
+        kind: "warn",
+        text: `U 本位永续 ${windowKey} 当前由 D1 历史快照回填，说明最新一次 Binance Futures 采集失败。`,
+      }).notes,
+      items: [...spotItems, ...fallbackItems],
+    };
+  } catch (error) {
+    return addSnapshotNote(snapshot, {
+      kind: "warn",
+      text: `U 本位永续 ${windowKey} 回填失败：${error?.message ? String(error.message) : "未知错误"}。`,
+    });
+  }
+}
+
+function buildUsdmHistoryFallbackItems(windowKey, historyState) {
+  const items = [];
+  const days = WINDOW_CONFIG[windowKey].days;
+
+  for (const [symbol, rows] of historyState.rowsBySymbol) {
+    const recentRows = days === 1 ? rows.slice(-1) : rows.slice(-days);
+    const latestRow = recentRows.at(-1) ?? rows.at(-1);
+    if (!latestRow) {
+      continue;
+    }
+
+    const lastPrice = toNumber(latestRow.lastPrice);
+    const referencePrice = toNumber(recentRows[0]?.openPrice);
+    const windowHigh = getMaxNumber(recentRows.map((row) => toNumber(row.highPrice)));
+    const windowLow = getMinNumber(recentRows.map((row) => toNumber(row.lowPrice)));
+    const changePercent = percentChange(lastPrice, referencePrice);
+    const rangePercent = priceRangePercent(windowHigh, windowLow, referencePrice);
+
+    if (!Number.isFinite(lastPrice) || !Number.isFinite(changePercent)) {
+      continue;
+    }
+
+    const uniqueDays = new Set(recentRows.map((row) => row.snapshotDay)).size;
+    const hasEnoughHistory = recentRows.length >= days && uniqueDays >= days;
+
+    items.push({
+      market: "perpetual",
+      segment: "usdm",
+      segmentLabel: "U本位永续",
+      symbol,
+      displaySymbol: createDisplaySymbol(getBaseAssetFromSymbol(symbol), QUOTE_ASSET),
+      baseAsset: getBaseAssetFromSymbol(symbol),
+      quoteAsset: QUOTE_ASSET,
+      lastPrice,
+      referencePrice,
+      changePercent,
+      windowHigh,
+      windowLow,
+      rangePercent,
+      isExact: false,
+      dataStatus: hasEnoughHistory ? "history-fallback" : "history-short",
+      dataIssue: hasEnoughHistory ? "使用D1回填" : `历史不足 ${windowKey}`,
+    });
+  }
+
+  return items;
+}
+
+function addSnapshotNote(snapshot, note) {
+  const notes = Array.isArray(snapshot?.notes) ? snapshot.notes : [];
+  const exists = notes.some((item) => item?.kind === note.kind && item?.text === note.text);
+  if (exists) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    notes: [note, ...notes],
   };
 }
 
@@ -431,7 +547,7 @@ async function upsertUsdmDailyStats(env, usdmSymbols, tickers, capturedAtMs) {
 }
 
 async function loadUsdmHistoryRows(env, days, referenceTimeMs) {
-  if (days <= 1) {
+  if (days <= 0) {
     return {
       rowsBySymbol: new Map(),
       loadError: "",
@@ -445,6 +561,8 @@ async function loadUsdmHistoryRows(env, days, referenceTimeMs) {
       SELECT
         snapshot_day AS snapshotDay,
         symbol,
+        base_asset AS baseAsset,
+        quote_asset AS quoteAsset,
         open_price AS openPrice,
         high_price AS highPrice,
         low_price AS lowPrice,

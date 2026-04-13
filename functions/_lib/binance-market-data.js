@@ -23,18 +23,22 @@ export async function collectMarketSnapshot(options = {}) {
     fetchJsonFromCandidates(fetchImpl, SPOT_BASE_URLS, "/api/v3/exchangeInfo", null, {
       label: "Spot exchange info",
       retries: 1,
+      validate: validateExchangeInfoPayload,
     }),
     fetchJsonFromCandidates(fetchImpl, USDM_BASE_URLS, "/fapi/v1/exchangeInfo", null, {
       label: "USD-M exchange info",
       retries: 1,
+      validate: validateExchangeInfoPayload,
     }),
     fetchJsonFromCandidates(fetchImpl, SPOT_BASE_URLS, "/api/v3/ticker/24hr", null, {
       label: "Spot 24h tickers",
       retries: 2,
+      validate: validateTickerArrayPayload,
     }),
     fetchJsonFromCandidates(fetchImpl, USDM_BASE_URLS, "/fapi/v1/ticker/24hr", null, {
       label: "USD-M 24h tickers",
       retries: 2,
+      validate: validateTickerArrayPayload,
     }),
   ]);
 
@@ -42,6 +46,14 @@ export async function collectMarketSnapshot(options = {}) {
   const activeUsdmSymbols = createUsdmTradingSymbolSet(usdmExchangeInfo);
   const spot24h = filterTickerRows(spot24hRaw, activeSpotSymbols);
   const usdm24h = filterTickerRows(usdm24hRaw, activeUsdmSymbols);
+
+  if (activeSpotSymbols.size === 0 || spot24h.length === 0) {
+    throw new Error("Spot market payload did not contain any tradable USDT symbols");
+  }
+
+  if (activeUsdmSymbols.size === 0 || usdm24h.length === 0) {
+    throw new Error("USD-M market payload did not contain any tradable perpetual USDT symbols");
+  }
 
   const spotSymbols = Array.from(
     new Set(
@@ -87,6 +99,7 @@ async function fetchSpotRollingWindow(fetchImpl, windowKey, symbols) {
       {
         label: `Spot ${windowKey} rolling window`,
         retries: 2,
+        validate: validateTickerArrayPayload,
       },
     );
 
@@ -194,6 +207,7 @@ async function fetchJson(fetchImpl, url, options = {}) {
     retries = 1,
     retryDelayMs = 800,
     label = url.toString(),
+    validate = null,
   } = options;
 
   let lastError = null;
@@ -215,11 +229,18 @@ async function fetchJson(fetchImpl, url, options = {}) {
         throw new Error(`${label} failed with ${response.status}: ${rawText.slice(0, 240)}`);
       }
 
+      let parsed = null;
       try {
-        return rawText ? JSON.parse(rawText) : null;
+        parsed = rawText ? JSON.parse(rawText) : null;
       } catch {
         throw new Error(`${label} returned invalid JSON: ${rawText.slice(0, 240) || "<empty>"}`);
       }
+
+      if (typeof validate === "function") {
+        validate(parsed, label);
+      }
+
+      return parsed;
     } catch (error) {
       lastError = error;
       const shouldRetry =
@@ -241,4 +262,32 @@ async function fetchJson(fetchImpl, url, options = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function validateExchangeInfoPayload(payload, label) {
+  if (payload && Array.isArray(payload.symbols)) {
+    return;
+  }
+
+  throw new Error(describeUnexpectedPayload(payload, label, "expected exchangeInfo.symbols array"));
+}
+
+function validateTickerArrayPayload(payload, label) {
+  if (Array.isArray(payload)) {
+    return;
+  }
+
+  throw new Error(describeUnexpectedPayload(payload, label, "expected ticker array"));
+}
+
+function describeUnexpectedPayload(payload, label, expectation) {
+  if (payload && typeof payload === "object") {
+    const errorCode = typeof payload.code === "number" || typeof payload.code === "string" ? payload.code : "";
+    const errorMessage = typeof payload.msg === "string" ? payload.msg : "";
+    if (errorCode || errorMessage) {
+      return `${label} returned Binance error ${errorCode || "unknown"}: ${errorMessage || expectation}`;
+    }
+  }
+
+  return `${label} returned unexpected payload: ${expectation}`;
 }
